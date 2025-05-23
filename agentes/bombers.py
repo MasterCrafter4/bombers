@@ -347,8 +347,11 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
                 if x == columnas-1:
                     ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='black', linewidth=2.5)
             else:
-                # Dibujar muros (bien posicionados)
-                muro_n, muro_e, muro_s, muro_o = grid[y, x]
+                # CAMBIO: Usar grid_state en lugar de grid para los muros
+                if model is not None:
+                    muro_n, muro_e, muro_s, muro_o = model.grid_state[y, x]["walls"]
+                else:
+                    muro_n, muro_e, muro_s, muro_o = grid[y, x]
 
                 # Comprobar si hay una puerta o entrada en cada dirección
                 puerta_n = (y, x, 0) in door_positions
@@ -366,11 +369,95 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
                     # Dibujar entrada norte
                     ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color='white', linewidth=4.0)
                 elif puerta_n:
-                    # Dibujar puerta norte
-                    ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color='brown', linewidth=2.5)
+                    # Dibujar puerta norte según su estado
+                    puerta_color = 'brown'
+                    puerta_abierta = False
+                    if model is not None and (y, x, 0) in model.door_states:
+                        puerta_abierta = model.door_states[(y, x, 0)] == "abierta"
+                        puerta_color = 'green' if puerta_abierta else 'brown'
+                    ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color=puerta_color, linewidth=2.5)
                 elif muro_n:
                     # Dibujar muro norte
-                    ax.plot([x, x+1], [filas - y, filas - y], color='black', linewidth=2.5)
+                    muro_color = 'black'
+                    if model is not None and (y, x, 0) in model.wall_damage:
+                        # Si el muro tiene daño, cambiar color
+                        if model.wall_damage[(y, x, 0)] == 1:
+                            muro_color = 'orange'  # Muro dañado una vez
+                        # Si tiene 2 daños, no se dibuja (está destruido)
+                        elif model.wall_damage[(y, x, 0)] >= 2:
+                            muro_color = None  # No dibujar
+                    
+                    if muro_color:
+                        ax.plot([x, x+1], [filas - y, filas - y], color=muro_color, linewidth=2.5)
+                
+                if entrada_e:
+                    # Dibujar entrada este
+                    ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
+                elif puerta_e:
+                    # Dibujar puerta este
+                    puerta_color = 'brown'
+                    if model is not None and (y, x, 1) in model.door_states:
+                        puerta_abierta = model.door_states[(y, x, 1)] == "abierta"
+                        puerta_color = 'green' if puerta_abierta else 'brown'
+                    ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
+                elif muro_e:
+                    # Dibujar muro este
+                    muro_color = 'black'
+                    if model is not None and (y, x, 1) in model.wall_damage:
+                        # Si el muro tiene daño, cambiar color
+                        if model.wall_damage[(y, x, 1)] == 1:
+                            muro_color = 'orange'
+                        elif model.wall_damage[(y, x, 1)] >= 2:
+                            muro_color = None
+                    
+                    if muro_color:
+                        ax.plot([x+1, x+1], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
+                
+                if entrada_s:
+                    # Dibujar entrada sur
+                    ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color='white', linewidth=4.0)
+                elif puerta_s:
+                    # Dibujar puerta sur
+                    puerta_color = 'brown'
+                    if model is not None and (y, x, 2) in model.door_states:
+                        puerta_abierta = model.door_states[(y, x, 2)] == "abierta"
+                        puerta_color = 'green' if puerta_abierta else 'brown'
+                    ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color=puerta_color, linewidth=2.5)
+                elif muro_s:
+                    # Dibujar muro sur
+                    muro_color = 'black'
+                    if model is not None and (y, x, 2) in model.wall_damage:
+                        # Si el muro tiene daño, cambiar color
+                        if model.wall_damage[(y, x, 2)] == 1:
+                            muro_color = 'orange'
+                        elif model.wall_damage[(y, x, 2)] >= 2:
+                            muro_color = None
+                    
+                    if muro_color:
+                        ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color=muro_color, linewidth=2.5)
+                
+                if entrada_o:
+                    # Dibujar entrada oeste
+                    ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
+                elif puerta_o:
+                    # Dibujar puerta oeste
+                    puerta_color = 'brown'
+                    if model is not None and (y, x, 3) in model.door_states:
+                        puerta_abierta = model.door_states[(y, x, 3)] == "abierta"
+                        puerta_color = 'green' if puerta_abierta else 'brown'
+                    ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
+                elif muro_o:
+                    # Dibujar muro oeste
+                    muro_color = 'black'
+                    if model is not None and (y, x, 3) in model.wall_damage:
+                        # Si el muro tiene daño, cambiar color
+                        if model.wall_damage[(y, x, 3)] == 1:
+                            muro_color = 'orange'
+                        elif model.wall_damage[(y, x, 3)] >= 2:
+                            muro_color = None
+                    
+                    if muro_color:
+                        ax.plot([x, x], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
                 
                 if entrada_e:
                     # Dibujar entrada este
@@ -471,7 +558,108 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
     plt.tight_layout()
     plt.show()
 
+<<<<<<< Updated upstream
 # Agregar después de la función visualizar_grid_con_perimetro_y_puertas y antes de la definición de clases
+=======
+def advance_fire(model):
+    """Propaga el fuego a través del escenario"""
+    filas, columnas = model.grid_state.shape
+    
+    # Registrar los cambios a realizar (para evitar propagar fuego recién creado en este turno)
+    nuevos_fuegos = []  # Lista de (y, x) donde habrá fuego nuevo
+    nuevos_humos = []   # Lista de (y, x) donde habrá humo nuevo
+    
+    # Paso 1: Detectar propagación del fuego
+    for y in range(filas):
+        for x in range(columnas):
+            # Si la celda tiene fuego, propagar a celdas adyacentes
+            if model.grid_state[y, x]["fire"]:
+                # Obtener los muros de la celda actual
+                muros = model.grid_state[y, x]["walls"]
+                
+                # Verificar propgación hacia el Norte (y-1)
+                if y > 0 and not muros[0]:  # Si no hay muro al norte
+                    # Verificar si la celda norte tiene muro hacia el sur
+                    if not model.grid_state[y-1, x]["walls"][2]:
+                        # Verificar si la celda norte no tiene fuego
+                        if not model.grid_state[y-1, x]["fire"]:
+                            # NUEVO: Verificar que no estamos en el perímetro
+                            es_perimetro = (y-1 == 0 or x == 0 or x == columnas-1 or y-1 == filas-1)
+                            if not es_perimetro:
+                                if model.grid_state[y-1, x]["smoke"]:
+                                    # Si hay humo, convertir a fuego
+                                    nuevos_fuegos.append((y-1, x))
+                                else:
+                                    # Si no hay humo, añadir humo
+                                    nuevos_humos.append((y-1, x))
+                
+                # Verificar propgación hacia el Este (x+1)
+                if x < columnas-1 and not muros[1]:  # Si no hay muro al este
+                    # Verificar si la celda este tiene muro hacia el oeste
+                    if not model.grid_state[y, x+1]["walls"][3]:
+                        # Verificar si la celda este no tiene fuego
+                        if not model.grid_state[y, x+1]["fire"]:
+                            # NUEVO: Verificar que no estamos en el perímetro
+                            es_perimetro = (y == 0 or x+1 == columnas-1 or x+1 == 0 or y == filas-1)
+                            if not es_perimetro:
+                                if model.grid_state[y, x+1]["smoke"]:
+                                    # Si hay humo, convertir a fuego
+                                    nuevos_fuegos.append((y, x+1))
+                                else:
+                                    # Si no hay humo, añadir humo
+                                    nuevos_humos.append((y, x+1))
+                
+                # Verificar propgación hacia el Sur (y+1)
+                if y < filas-1 and not muros[2]:  # Si no hay muro al sur
+                    # Verificar si la celda sur tiene muro hacia el norte
+                    if not model.grid_state[y+1, x]["walls"][0]:
+                        # Verificar si la celda sur no tiene fuego
+                        if not model.grid_state[y+1, x]["fire"]:
+                            # NUEVO: Verificar que no estamos en el perímetro
+                            es_perimetro = (y+1 == 0 or x == 0 or x == columnas-1 or y+1 == filas-1)
+                            if not es_perimetro:
+                                if model.grid_state[y+1, x]["smoke"]:
+                                    # Si hay humo, convertir a fuego
+                                    nuevos_fuegos.append((y+1, x))
+                                else:
+                                    # Si no hay humo, añadir humo
+                                    nuevos_humos.append((y+1, x))
+                
+                # Verificar propgación hacia el Oeste (x-1)
+                if x > 0 and not muros[3]:  # Si no hay muro al oeste
+                    # Verificar si la celda oeste tiene muro hacia el este
+                    if not model.grid_state[y, x-1]["walls"][1]:
+                        # Verificar si la celda oeste no tiene fuego
+                        if not model.grid_state[y, x-1]["fire"]:
+                            # NUEVO: Verificar que no estamos en el perímetro
+                            es_perimetro = (y == 0 or x-1 == columnas-1 or x-1 == 0 or y == filas-1)
+                            if not es_perimetro:
+                                if model.grid_state[y, x-1]["smoke"]:
+                                    # Si hay humo, convertir a fuego
+                                    nuevos_fuegos.append((y, x-1))
+                                else:
+                                    # Si no hay humo, añadir humo
+                                    nuevos_humos.append((y, x-1))
+    
+    # Paso 2: Aplicar los cambios detectados
+    # Primero aplicamos los nuevos fuegos
+    for y, x in nuevos_fuegos:
+        model.grid_state[y, x]["fire"] = True
+        model.grid_state[y, x]["smoke"] = False  # El humo se convierte en fuego
+        # Añadir a la lista de fuegos del escenario
+        pos_fuego = (y, x)
+        if pos_fuego not in model.scenario["fires"]:
+            model.scenario["fires"].append(pos_fuego)
+        # Imprimir mensaje informativo
+        print(f"🔥 Fuego se propaga a ({x},{y}): había humo → ahora es fuego.")
+    
+    # Luego aplicamos los nuevos humos (evitando duplicados con los nuevos fuegos)
+    for y, x in nuevos_humos:
+        if (y, x) not in nuevos_fuegos:  # Evitar duplicados
+            model.grid_state[y, x]["smoke"] = True
+            # Imprimir mensaje informativo
+            print(f"💨 Fuego genera humo en ({x},{y}).")
+>>>>>>> Stashed changes
 
 def visualizar_simulacion(model):
     """Visualiza el estado actual de la simulación, incluyendo bomberos"""
@@ -485,7 +673,7 @@ def visualizar_simulacion(model):
         model  
     )
 
-class FirefighterAgent (Agent):
+class FirefighterAgent(Agent):
     """Agente bombero que rescata víctimas del incendio"""
     
     def __init__(self, unique_id, model, pos):
@@ -495,6 +683,175 @@ class FirefighterAgent (Agent):
         self.carrying = False  # Si está cargando una víctima
         self.entrada_asignada = None  # La entrada a la que debe dirigirse
         self.direccion = None  # Dirección desde la que entra
+        self.max_ap = 8  # Máximo de AP acumulables
+    
+    def extinguir_fuego(self, celda_y, celda_x, tipo="fuego"):
+        """Intenta extinguir fuego o humo en una celda específica"""
+        celda = self.model.grid_state[celda_y, celda_x]
+        
+        # Verificar si hay fuego o humo en la celda
+        if tipo == "fuego" and celda["fire"]:
+            # Verificar si hay suficiente AP para apagar fuego (2 AP)
+            if self.ap >= 2:
+                celda["fire"] = False
+                # Eliminar de la lista de fuegos del modelo
+                if (celda_y, celda_x) in self.model.scenario["fires"]:
+                    self.model.scenario["fires"].remove((celda_y, celda_x))
+                self.ap -= 2
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Apagó fuego en ({celda_x},{celda_y}). AP restante: {self.ap}")
+                return True
+            else:
+                print(f"[Bombero {self.unique_id}] No tiene suficiente AP para apagar fuego (necesita 2 AP)")
+                return False
+        
+        # Convertir fuego a humo (1 AP)
+        elif tipo == "convertir" and celda["fire"]:
+            if self.ap >= 1:
+                celda["fire"] = False
+                celda["smoke"] = True
+                # Eliminar de la lista de fuegos del modelo
+                if (celda_y, celda_x) in self.model.scenario["fires"]:
+                    self.model.scenario["fires"].remove((celda_y, celda_x))
+                self.ap -= 1
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Convirtió fuego a humo en ({celda_x},{celda_y}). AP restante: {self.ap}")
+                return True
+            else:
+                print(f"[Bombero {self.unique_id}] No tiene suficiente AP para convertir fuego a humo (necesita 1 AP)")
+                return False
+        
+        # Eliminar humo (1 AP)
+        elif tipo == "humo" and celda["smoke"]:
+            if self.ap >= 1:
+                celda["smoke"] = False
+                self.ap -= 1
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Eliminó humo en ({celda_x},{celda_y}). AP restante: {self.ap}")
+                return True
+            else:
+                print(f"[Bombero {self.unique_id}] No tiene suficiente AP para eliminar humo (necesita 1 AP)")
+                return False
+        
+        return False
+    
+    def abrir_cerrar_puerta(self, direccion):
+        """Abre o cierra una puerta adyacente en la dirección especificada (N=0, E=1, S=2, O=3)"""
+        if self.ap < 1:
+            print(f"[Bombero {self.unique_id}] No tiene suficiente AP para abrir/cerrar puerta (necesita 1 AP)")
+            return False
+        
+        # Obtener coordenadas actuales
+        x, y = self.pos
+        
+        # Buscar si hay una puerta en la dirección especificada
+        puerta_pos = None
+        
+        # Revisar si hay puerta en la dirección indicada
+        if direccion == 0:  # Norte
+            puerta_pos = (y, x, 0)
+        elif direccion == 1:  # Este
+            puerta_pos = (y, x, 1)
+        elif direccion == 2:  # Sur
+            puerta_pos = (y, x, 2)
+        elif direccion == 3:  # Oeste
+            puerta_pos = (y, x, 3)
+        
+        # Verificar si la puerta existe en las puertas del escenario
+        door_positions = compute_door_positions(self.model.scenario["doors"])
+        if puerta_pos in door_positions:
+            # Si existe, cambia su estado
+            if puerta_pos not in self.model.door_states:
+                self.model.door_states[puerta_pos] = "cerrada"  # Estado inicial cerrada
+            
+            # Cambia el estado
+            nuevo_estado = "abierta" if self.model.door_states[puerta_pos] == "cerrada" else "cerrada"
+            self.model.door_states[puerta_pos] = nuevo_estado
+            
+            # Restar AP
+            self.ap -= 1
+            
+            # Texto para la dirección
+            direcciones = ["norte", "este", "sur", "oeste"]
+            print(f"[Bombero {self.unique_id}] ACCIÓN: {nuevo_estado.capitalize()} puerta al {direcciones[direccion]} desde ({x},{y}). AP restante: {self.ap}")
+            return True
+        else:
+            print(f"[Bombero {self.unique_id}] No hay puerta al {['norte', 'este', 'sur', 'oeste'][direccion]} para abrir/cerrar")
+            return False
+    
+    def cortar_pared(self, direccion):
+        """Corta una pared adyacente en la dirección especificada (N=0, E=1, S=2, O=3)"""
+        if self.ap < 2:
+            print(f"[Bombero {self.unique_id}] No tiene suficiente AP para cortar pared (necesita 2 AP)")
+            return False
+        
+        # Obtener coordenadas actuales
+        x, y = self.pos
+        
+        # Verificar si hay un muro en la dirección indicada
+        muros = self.model.grid_state[y, x]["walls"]
+        
+        # Verificar pared de perímetro - Este es el cambio clave
+        es_perimetro = False
+        
+        # Verificación directa por posición de pared y dirección
+        if direccion == 0:  # Norte
+            if y == 1:  # La celda de arriba sería perímetro (0)
+                es_perimetro = True
+        elif direccion == 1:  # Este
+            if x == self.model.grid.width - 2:  # La celda a la derecha sería perímetro (width-1)
+                es_perimetro = True
+        elif direccion == 2:  # Sur
+            if y == self.model.grid.height - 2:  # La celda abajo sería perímetro (height-1)
+                es_perimetro = True
+        elif direccion == 3:  # Oeste
+            if x == 1:  # La celda a la izquierda sería perímetro (0)
+                es_perimetro = True
+        
+        # También verificar si la celda actual es perímetro y la dirección va hacia afuera
+        if (y == 0 and direccion == 0) or \
+        (x == self.model.grid.width - 1 and direccion == 1) or \
+        (y == self.model.grid.height - 1 and direccion == 2) or \
+        (x == 0 and direccion == 3):
+            es_perimetro = True
+            
+        if muros[direccion] == 1:  # Hay un muro en esa dirección
+            if es_perimetro:
+                print(f"[Bombero {self.unique_id}] ERROR: No se puede cortar una pared del perímetro exterior")
+                return False
+            
+            # Crear clave para el muro
+            pared_key = (y, x, direccion)
+            
+            # Añadir daño a la pared
+            if pared_key not in self.model.wall_damage:
+                self.model.wall_damage[pared_key] = 1
+            else:
+                self.model.wall_damage[pared_key] += 1
+            
+            # Restar AP
+            self.ap -= 2
+            
+            # Determinar si la pared está destruida
+            if self.model.wall_damage[pared_key] >= 2:
+                # Destruir la pared (eliminar muro)
+                self.model.grid_state[y, x]["walls"][direccion] = 0
+                
+                # También eliminar el muro correspondiente desde la otra celda
+                if direccion == 0 and y > 0:  # Norte
+                    self.model.grid_state[y-1, x]["walls"][2] = 0  # Sur de la celda norte
+                elif direccion == 1 and x < self.model.grid.width - 1:  # Este
+                    self.model.grid_state[y, x+1]["walls"][3] = 0  # Oeste de la celda este
+                elif direccion == 2 and y < self.model.grid.height - 1:  # Sur
+                    self.model.grid_state[y+1, x]["walls"][0] = 0  # Norte de la celda sur
+                elif direccion == 3 and x > 0:  # Oeste
+                    self.model.grid_state[y, x-1]["walls"][1] = 0  # Este de la celda oeste
+                
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Destruyó pared al {['norte', 'este', 'sur', 'oeste'][direccion]} desde ({x},{y}). AP restante: {self.ap}")
+            else:
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Cortó pared al {['norte', 'este', 'sur', 'oeste'][direccion]} desde ({x},{y}). Pared tiene {self.model.wall_damage[pared_key]} daño. AP restante: {self.ap}")
+            
+            return True
+        else:
+            print(f"[Bombero {self.unique_id}] No hay pared al {['norte', 'este', 'sur', 'oeste'][direccion]} para cortar")
+            return False
     
     def step(self):
         # Iniciar reporte de uso de AP
@@ -508,106 +865,369 @@ class FirefighterAgent (Agent):
             self.entrada_asignada = None  # Ya entramos, no necesitamos recordar la entrada
             return  # Salimos porque usar la entrada consume el turno
         
-        # Mientras tenga puntos de acción, moverse aleatoriamente
+        # ===== NUEVA SECCIÓN: MENÚ DE ACCIONES =====
+        # Mientras tenga puntos de acción, permitir realizar acciones
         while self.ap > 0:
             # Obtener posición actual
             x, y = self.pos  # Mesa usa (x=columna, y=fila)
-            
-            # Obtener celda actual y sus muros [N, E, S, O]
             celda_actual = self.model.grid_state[y, x]
+            
+            # VERIFICACIÓN 1: POI en celda actual (como antes)
+            if celda_actual["poi"] is not None:
+                if celda_actual["poi"] == "v" and not self.carrying:
+                    # Es una víctima y no estamos cargando ya a otra
+                    self.carrying = True
+                    celda_actual["poi"] = None  # Eliminar el POI de la celda
+                    print(f"[Bombero {self.unique_id}] ACCIÓN: Recogió víctima en ({x},{y})")
+                elif celda_actual["poi"] == "f":
+                    # Es una falsa alarma
+                    celda_actual["poi"] = None  # Eliminar el POI de la celda
+                    print(f"[Bombero {self.unique_id}] ACCIÓN: Encontró una falsa alarma en ({x},{y})")
+            
+            # VERIFICACIÓN 2: Rescate en entrada con víctima (como antes)
+            if self.carrying:
+                es_entrada = self.pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                es_perimetro = self.pos[0] == 0 or self.pos[0] == self.model.grid.width - 1 or \
+                            self.pos[1] == 0 or self.pos[1] == self.model.grid.height - 1
+                
+                if es_entrada and es_perimetro:
+                    print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Ha rescatado a la víctima en {self.pos}")
+                    self.carrying = False
+                    return  # El rescate consume el turno
+            
+            # NUEVO: DECISIÓN DE ACCIÓN (para este ejemplo, decisiones aleatorias)
+            # En un juego real se permitiría al usuario elegir qué acción realizar
+            acciones_posibles = []
+            
+            # 1. Siempre puede intentar moverse
+            acciones_posibles.append("mover")
+            
+            # 2. Verificar si puede apagar fuego en la celda actual o adyacentes
+            celdas_adyacentes = []
+            # Obtener coordenadas de celdas adyacentes
+            if y > 0:  # Norte
+                celdas_adyacentes.append((y - 1, x))
+            if x < self.model.grid.width - 1:  # Este
+                celdas_adyacentes.append((y, x + 1))
+            if y < self.model.grid.height - 1:  # Sur
+                celdas_adyacentes.append((y + 1, x))
+            if x > 0:  # Oeste
+                celdas_adyacentes.append((y, x - 1))
+            
+            # Verificar fuego en celda actual
+            if celda_actual["fire"] and self.ap >= 2:
+                acciones_posibles.append("apagar_fuego")
+                acciones_posibles.append("convertir_fuego_humo")
+            
+            # Verificar humo en celda actual
+            if celda_actual["smoke"] and self.ap >= 1:
+                acciones_posibles.append("eliminar_humo")
+            
+            # Verificar fuego en celdas adyacentes
+            for celda_y, celda_x in celdas_adyacentes:
+                if self.model.grid_state[celda_y, celda_x]["fire"] and self.ap >= 2:
+                    acciones_posibles.append("apagar_fuego_adyacente")
+                    acciones_posibles.append("convertir_fuego_humo_adyacente")
+                if self.model.grid_state[celda_y, celda_x]["smoke"] and self.ap >= 1:
+                    acciones_posibles.append("eliminar_humo_adyacente")
+            
+            # 3. Verificar puertas adyacentes para abrir/cerrar
             muros = celda_actual["walls"]
+            for i in range(4):  # Revisar en 4 direcciones
+                puerta_pos = None
+                if i == 0 and y > 0:  # Norte
+                    puerta_pos = (y, x, 0)
+                elif i == 1 and x < self.model.grid.width - 1:  # Este
+                    puerta_pos = (y, x, 1)
+                elif i == 2 and y < self.model.grid.height - 1:  # Sur
+                    puerta_pos = (y, x, 2)
+                elif i == 3 and x > 0:  # Oeste
+                    puerta_pos = (y, x, 3)
+                
+                if puerta_pos:
+                    door_positions = compute_door_positions(self.model.scenario["doors"])
+                    if puerta_pos in door_positions and self.ap >= 1:
+                        acciones_posibles.append(f"puerta_{i}")
             
-            # Posibles movimientos (N, E, S, O) y sus coordenadas relativas
-            movimientos = []
+            # 4. Verificar paredes que pueden ser cortadas
+            for i in range(4):
+                if muros[i] == 1 and self.ap >= 2:  # Hay un muro y tengo suficiente AP
+                    # Verificación más completa del perímetro
+                    es_perimetro = False
+                    
+                    # Verificación directa por posición de pared y dirección
+                    if i == 0:  # Norte
+                        if y == 1:  # La celda de arriba sería perímetro (0)
+                            es_perimetro = True
+                    elif i == 1:  # Este
+                        if x == self.model.grid.width - 2:  # La celda a la derecha sería perímetro (width-1)
+                            es_perimetro = True
+                    elif i == 2:  # Sur
+                        if y == self.model.grid.height - 2:  # La celda abajo sería perímetro (height-1)
+                            es_perimetro = True
+                    elif i == 3:  # Oeste
+                        if x == 1:  # La celda a la izquierda sería perímetro (0)
+                            es_perimetro = True
+                            
+                    # También verificar si la celda actual es perímetro y la dirección va hacia afuera
+                    if (y == 0 and i == 0) or \
+                    (x == self.model.grid.width - 1 and i == 1) or \
+                    (y == self.model.grid.height - 1 and i == 2) or \
+                    (x == 0 and i == 3):
+                        es_perimetro = True
+                        
+                    if not es_perimetro:
+                        acciones_posibles.append(f"cortar_{i}")
             
-            # Norte (y-1)
-            if not muros[0] and y > 0:  # No hay muro al norte y no estamos en el borde
-                pos_norte = (x, y - 1)
-                # Verificar si la celda está vacía
-                if self.model.grid.is_cell_empty(pos_norte):
-                    # Verificar si estamos saliendo del área jugable (entrando al perímetro)
-                    es_perimetro = pos_norte[0] == 0 or pos_norte[0] == self.model.grid.width - 1 or \
-                                  pos_norte[1] == 0 or pos_norte[1] == self.model.grid.height - 1
-                    
-                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
-                    es_entrada = pos_norte in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-                    
-                    if not es_perimetro or (self.carrying and es_entrada):
-                        movimientos.append(pos_norte)
+            # 5. Siempre puede pasar turno
+            acciones_posibles.append("pasar")
             
-            # Este (x+1)
-            if not muros[1] and x < self.model.grid.width - 1:  # No hay muro al este y no estamos en el borde
-                pos_este = (x + 1, y)
-                # Verificar si la celda está vacía
-                if self.model.grid.is_cell_empty(pos_este):
-                    # Verificar si estamos saliendo del área jugable
-                    es_perimetro = pos_este[0] == 0 or pos_este[0] == self.model.grid.width - 1 or \
-                                  pos_este[1] == 0 or pos_este[1] == self.model.grid.height - 1
-                    
-                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
-                    es_entrada = pos_este in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-                    
-                    if not es_perimetro or (self.carrying and es_entrada):
-                        movimientos.append(pos_este)
+            # Elegir acción aleatoriamente (para simulación)
+            # En un juego real, esta elección vendría del usuario
+            accion = self.model.random.choice(acciones_posibles)
             
-            # Sur (y+1)
-            if not muros[2] and y < self.model.grid.height - 1:  # No hay muro al sur y no estamos en el borde
-                pos_sur = (x, y + 1)
-                # Verificar si la celda está vacía
-                if self.model.grid.is_cell_empty(pos_sur):
-                    # Verificar si estamos saliendo del área jugable
-                    es_perimetro = pos_sur[0] == 0 or pos_sur[0] == self.model.grid.width - 1 or \
-                                  pos_sur[1] == 0 or pos_sur[1] == self.model.grid.height - 1
-                    
-                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
-                    es_entrada = pos_sur in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-                    
-                    if not es_perimetro or (self.carrying and es_entrada):
-                        movimientos.append(pos_sur)
-            
-            # Oeste (x-1)
-            if not muros[3] and x > 0:  # No hay muro al oeste y no estamos en el borde
-                pos_oeste = (x - 1, y)
-                # Verificar si la celda está vacía
-                if self.model.grid.is_cell_empty(pos_oeste):
-                    # Verificar si estamos saliendo del área jugable
-                    es_perimetro = pos_oeste[0] == 0 or pos_oeste[0] == self.model.grid.width - 1 or \
-                                  pos_oeste[1] == 0 or pos_oeste[1] == self.model.grid.height - 1
-                    
-                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
-                    es_entrada = pos_oeste in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-                    
-                    if not es_perimetro or (self.carrying and es_entrada):
-                        movimientos.append(pos_oeste)
-            
-            # Si no hay movimientos válidos, terminar el turno
-            if not movimientos:
-                print(f"[Bombero {self.unique_id}] ACCIÓN: No puede moverse desde {self.pos}, AP restante: {self.ap}")
+            # Ejecutar la acción elegida
+            if accion == "mover":
+                # Lógica de movimiento existente
+                self._realizar_movimiento()
+            elif accion == "apagar_fuego":
+                self.extinguir_fuego(y, x, "fuego")
+            elif accion == "convertir_fuego_humo":
+                self.extinguir_fuego(y, x, "convertir")
+            elif accion == "eliminar_humo":
+                self.extinguir_fuego(y, x, "humo")
+            elif accion == "apagar_fuego_adyacente":
+                # Elegir una celda adyacente con fuego al azar
+                celdas_con_fuego = [(cy, cx) for cy, cx in celdas_adyacentes 
+                                   if self.model.grid_state[cy, cx]["fire"]]
+                if celdas_con_fuego:
+                    cy, cx = self.model.random.choice(celdas_con_fuego)
+                    self.extinguir_fuego(cy, cx, "fuego")
+            elif accion == "convertir_fuego_humo_adyacente":
+                # Elegir una celda adyacente con fuego al azar
+                celdas_con_fuego = [(cy, cx) for cy, cx in celdas_adyacentes 
+                                   if self.model.grid_state[cy, cx]["fire"]]
+                if celdas_con_fuego:
+                    cy, cx = self.model.random.choice(celdas_con_fuego)
+                    self.extinguir_fuego(cy, cx, "convertir")
+            elif accion == "eliminar_humo_adyacente":
+                # Elegir una celda adyacente con humo al azar
+                celdas_con_humo = [(cy, cx) for cy, cx in celdas_adyacentes 
+                                  if self.model.grid_state[cy, cx]["smoke"]]
+                if celdas_con_humo:
+                    cy, cx = self.model.random.choice(celdas_con_humo)
+                    self.extinguir_fuego(cy, cx, "humo")
+            elif accion.startswith("puerta_"):
+                direccion = int(accion.split("_")[1])
+                self.abrir_cerrar_puerta(direccion)
+            elif accion.startswith("cortar_"):
+                direccion = int(accion.split("_")[1])
+                self.cortar_pared(direccion)
+            elif accion == "pasar":
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Pasa turno. AP restante: {self.ap}")
+                # Terminar el turno
                 break
-            
-            # Elegir una dirección aleatoria
-            nueva_pos = self.model.random.choice(movimientos)
-            
-            # Verificar si es un movimiento hacia una entrada cargando víctima
-            es_entrada = nueva_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-            es_perimetro = nueva_pos[0] == 0 or nueva_pos[0] == self.model.grid.width - 1 or \
-                          nueva_pos[1] == 0 or nueva_pos[1] == self.model.grid.height - 1
-            
-            # Mover al agente
-            self.model.grid.move_agent(self, nueva_pos)
-            
-            # Restar punto de acción
-            self.ap -= 1
-            
-            # Generar mensaje según el tipo de movimiento
-            if self.carrying and es_entrada and es_perimetro:
-                print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Salió por la entrada {nueva_pos} con la víctima. AP restante: {self.ap}")
-                self.carrying = False  # Ya no carga a la víctima
-            else:
-                print(f"[Bombero {self.unique_id}] ACCIÓN: Se movió a {nueva_pos}. AP restante: {self.ap}")
         
         # Resumen del turno
         print(f"[Bombero {self.unique_id}] Finaliza turno. Posición actual: {self.pos}, Cargando víctima: {self.carrying}")
+    
+    def _realizar_movimiento(self):
+        """Método auxiliar para realizar un movimiento, respetando las restricciones"""
+        # Obtener posición actual
+        x, y = self.pos
+        
+        # Obtener celda actual y sus muros [N, E, S, O]
+        celda_actual = self.model.grid_state[y, x]
+        muros = celda_actual["walls"]
+        
+        # Posibles movimientos (N, E, S, O) y sus coordenadas relativas
+        movimientos = []
+        
+        # Debugging: mostrar más información cuando está cargando una víctima
+        if self.carrying:
+            print(f"[Debug] Bombero {self.unique_id} está cargando una víctima en ({x},{y})")
+            # Mostrar entradas disponibles
+            entradas = [(e[1], e[0]) for e in self.model.scenario["entries"]]
+            print(f"[Debug] Entradas disponibles: {entradas}")
+        
+        # Norte (y-1)
+        if y > 0:  # No estamos en el borde superior
+            pos_norte = (x, y - 1)
+            # Verificar si podemos pasar (no hay muro o está destruido)
+            puede_pasar = not muros[0]
+            # También revisar si el muro está destruido
+            pared_key = (y, x, 0)
+            if pared_key in self.model.wall_damage and self.model.wall_damage[pared_key] >= 2:
+                puede_pasar = True
+            
+            if puede_pasar and self.model.grid.is_cell_empty(pos_norte):
+                # Verificar restricciones adicionales
+                celda_destino = self.model.grid_state[y - 1, x]
+                
+                # Verificar si es perímetro
+                es_perimetro = pos_norte[0] == 0 or pos_norte[0] == self.model.grid.width - 1 or \
+                            pos_norte[1] == 0 or pos_norte[1] == self.model.grid.height - 1
+                
+                # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                es_entrada = pos_norte in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                
+                # NUEVA RESTRICCIÓN corregida: No ir a celdas con fuego si carga víctima
+                puede_ir = True
+                if self.carrying and celda_destino["fire"]:
+                    puede_ir = False
+                    
+                if puede_ir:
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_norte)
+                        if self.carrying and es_entrada:
+                            print(f"[Debug] Añadido movimiento hacia entrada: {pos_norte}")
+        
+        # Este (x+1)
+        if x < self.model.grid.width - 1:  # No estamos en el borde derecho
+            pos_este = (x + 1, y)
+            # Verificar si podemos pasar (no hay muro o está destruido)
+            puede_pasar = not muros[1]
+            # También revisar si el muro está destruido
+            pared_key = (y, x, 1)
+            if pared_key in self.model.wall_damage and self.model.wall_damage[pared_key] >= 2:
+                puede_pasar = True
+            
+            if puede_pasar and self.model.grid.is_cell_empty(pos_este):
+                # Verificar restricciones adicionales
+                celda_destino = self.model.grid_state[y, x + 1]
+                
+                # Verificar si es perímetro
+                es_perimetro = pos_este[0] == 0 or pos_este[0] == self.model.grid.width - 1 or \
+                            pos_este[1] == 0 or pos_este[1] == self.model.grid.height - 1
+                
+                # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                es_entrada = pos_este in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                
+                # NUEVA RESTRICCIÓN corregida: No ir a celdas con fuego si carga víctima
+                puede_ir = True
+                if self.carrying and celda_destino["fire"]:
+                    puede_ir = False
+                    
+                if puede_ir:
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_este)
+                        if self.carrying and es_entrada:
+                            print(f"[Debug] Añadido movimiento hacia entrada: {pos_este}")
+        
+        # Sur (y+1)
+        if y < self.model.grid.height - 1:  # No estamos en el borde inferior
+            pos_sur = (x, y + 1)
+            # Verificar si podemos pasar (no hay muro o está destruido)
+            puede_pasar = not muros[2]
+            # También revisar si el muro está destruido
+            pared_key = (y, x, 2)
+            if pared_key in self.model.wall_damage and self.model.wall_damage[pared_key] >= 2:
+                puede_pasar = True
+            
+            if puede_pasar and self.model.grid.is_cell_empty(pos_sur):
+                # Verificar restricciones adicionales
+                celda_destino = self.model.grid_state[y + 1, x]
+                
+                # Verificar si es perímetro
+                es_perimetro = pos_sur[0] == 0 or pos_sur[0] == self.model.grid.width - 1 or \
+                            pos_sur[1] == 0 or pos_sur[1] == self.model.grid.height - 1
+                
+                # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                es_entrada = pos_sur in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                
+                # NUEVA RESTRICCIÓN corregida: No ir a celdas con fuego si carga víctima
+                puede_ir = True
+                if self.carrying and celda_destino["fire"]:
+                    puede_ir = False
+                    
+                if puede_ir:
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_sur)
+                        if self.carrying and es_entrada:
+                            print(f"[Debug] Añadido movimiento hacia entrada: {pos_sur}")
+        
+        # Oeste (x-1)
+        if x > 0:  # No estamos en el borde izquierdo
+            pos_oeste = (x - 1, y)
+            # Verificar si podemos pasar (no hay muro o está destruido)
+            puede_pasar = not muros[3]
+            # También revisar si el muro está destruido
+            pared_key = (y, x, 3)
+            if pared_key in self.model.wall_damage and self.model.wall_damage[pared_key] >= 2:
+                puede_pasar = True
+            
+            if puede_pasar and self.model.grid.is_cell_empty(pos_oeste):
+                # Verificar restricciones adicionales
+                celda_destino = self.model.grid_state[y, x - 1]
+                
+                # Verificar si es perímetro
+                es_perimetro = pos_oeste[0] == 0 or pos_oeste[0] == self.model.grid.width - 1 or \
+                            pos_oeste[1] == 0 or pos_oeste[1] == self.model.grid.height - 1
+                
+                # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                es_entrada = pos_oeste in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                
+                # NUEVA RESTRICCIÓN corregida: No ir a celdas con fuego si carga víctima
+                puede_ir = True
+                if self.carrying and celda_destino["fire"]:
+                    puede_ir = False
+                    
+                if puede_ir:
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_oeste)
+                        if self.carrying and es_entrada:
+                            print(f"[Debug] Añadido movimiento hacia entrada: {pos_oeste}")
+        
+        # Si no hay movimientos válidos, terminar el turno
+        if not movimientos:
+            print(f"[Bombero {self.unique_id}] ACCIÓN: No puede moverse desde {self.pos}, AP restante: {self.ap}")
+            # Información adicional de depuración cuando no puede moverse con víctima
+            if self.carrying:
+                print(f"[Debug] El bombero {self.unique_id} está cargando una víctima pero no puede moverse. Posibles razones:")
+                print(f"  - Todas las celdas adyacentes tienen fuego")
+                print(f"  - Todas las celdas adyacentes están ocupadas")
+                print(f"  - No hay entradas accesibles adyacentes")
+            return False
+        
+        # Elegir una dirección aleatoria
+        nueva_pos = self.model.random.choice(movimientos)
+        
+        # Verificar si es un movimiento hacia una entrada cargando víctima
+        es_entrada = nueva_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+        es_perimetro = nueva_pos[0] == 0 or nueva_pos[0] == self.model.grid.width - 1 or \
+                    nueva_pos[1] == 0 or nueva_pos[1] == self.model.grid.height - 1
+        
+        # Mover al agente
+        self.model.grid.move_agent(self, nueva_pos)
+        
+        # Restar punto de acción
+        self.ap -= 1
+        
+        # Generar mensaje según el tipo de movimiento
+        if self.carrying and es_entrada and es_perimetro:
+            print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Salió por la entrada {nueva_pos} con la víctima. AP restante: {self.ap}")
+            self.carrying = False  # Ya no carga a la víctima
+            return True
+        else:
+            print(f"[Bombero {self.unique_id}] ACCIÓN: Se movió a {nueva_pos}. AP restante: {self.ap}")
+            
+            # Verificar POI en la nueva posición
+            nueva_x, nueva_y = nueva_pos
+            celda_nueva = self.model.grid_state[nueva_y, nueva_x]
+            
+            # Si hay un POI en la nueva celda
+            if celda_nueva["poi"] is not None:
+                if celda_nueva["poi"] == "v" and not self.carrying:
+                    # Es una víctima y no estamos cargando ya a otra
+                    self.carrying = True
+                    celda_nueva["poi"] = None  # Eliminar el POI de la celda
+                    print(f"[Bombero {self.unique_id}] ACCIÓN: Recogió víctima en ({nueva_x},{nueva_y})")
+                elif celda_nueva["poi"] == "f":
+                    # Es una falsa alarma
+                    celda_nueva["poi"] = None  # Eliminar el POI de la celda
+                    print(f"[Bombero {self.unique_id}] ACCIÓN: Encontró una falsa alarma en ({nueva_x},{nueva_y})")
+            
+            return True
 
 class FireRescueModel(Model):
     """Modelo de simulación de rescate en incendio"""
@@ -624,6 +1244,10 @@ class FireRescueModel(Model):
         # Almacenar el escenario y el estado de la grilla
         self.scenario = scenario
         self.grid_state = build_grid_state(scenario)
+        
+        # NUEVO: Registros para nuevas mecánicas
+        self.door_states = {}  # Diccionario para estado de puertas (abiertas/cerradas)
+        self.wall_damage = {}  # Diccionario para daño a paredes
         
         # Colocar bomberos fuera del tablero, junto a las entradas
         self.create_agents()
@@ -700,9 +1324,18 @@ class FireRescueModel(Model):
         # Ejecutar paso de cada agente
         self.schedule.step()
         
+<<<<<<< Updated upstream
         # Restaurar AP de todos los bomberos al final del turno
+=======
+        # Propagar el fuego después de que los agentes hayan actuado
+        print("\n=== PROPAGACIÓN DEL FUEGO ===")
+        advance_fire(self)
+        
+        # Restaurar AP de todos los bomberos al final del turno (MODIFICADO)
+>>>>>>> Stashed changes
         for agent in self.schedule.agents:
-            agent.ap = 4  # Restaurar a 4 AP
+            # NUEVO: Acumular AP sin sobrepasar el máximo
+            agent.ap = min(agent.ap + 4, agent.max_ap)  # Restaurar AP y acumular hasta max_ap
         
         # Imprimir resumen del turno
         print("\n==== Fin del turno ====")
@@ -749,12 +1382,13 @@ print("\n=== SIMULACIÓN EN PROGRESO ===")
 print("\n--- Estado inicial ---")
 visualizar_simulacion(model)  # Visualizar estado inicial (paso 0)
 
-model.step()  # Paso 1 (bomberos entrando)
-print("\n--- Paso 1: Bomberos entrando al tablero ---")
-visualizar_simulacion(model)  # Visualizar después del paso 1
+# Número de pasos a simular (cambia este valor para más o menos pasos)
+num_pasos = 10
 
-model.step()  # Paso 2 (bomberos ya dentro)
-print("\n--- Paso 2: Bomberos dentro del tablero ---")
-visualizar_simulacion(model)  # Visualizar después del paso 2
+# Ejecutar la simulación para los pasos especificados
+for i in range(num_pasos):
+    model.step()  # Ejecutar paso
+    print(f"\n--- Paso {i+1} ---")
+    visualizar_simulacion(model)  # Visualizar después de cada paso
 
 print("\n=== SIMULACIÓN FINALIZADA ===")
