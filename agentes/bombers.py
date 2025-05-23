@@ -267,7 +267,7 @@ def verify_grid_state(grid_state):
                 break
 
 # Función de visualización 
-def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires=None, pois=None):
+def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires=None, pois=None, model=None):
     filas, columnas = grid.shape[:2]
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_facecolor('#d9f2d9')  # Fondo verde claro
@@ -423,41 +423,50 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
 
 
     if model is not None:
+        # Agregar bomberos a la leyenda
+        bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
+                                  markerfacecolor='blue', markeredgecolor='navy', 
+                                  alpha=0.7, linestyle='', label='Bombero')
+        
+        # Actualizar la leyenda para incluir bomberos
+        ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, 
+                          puerta_line, fire_marker, victim_marker, false_alarm_marker,
+                          bombero_marker], 
+                  loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
+        
+        # Configurar límites para ver TODA el área, incluido el exterior
+        ax.set_xlim(-1, columnas+1) 
+        ax.set_ylim(-1, filas+1)
+        
         # Dibujar bomberos como círculos azules con número de identificación
         for agent in model.schedule.agents:
             x, y = agent.pos  # Mesa usa (x=columna, y=fila)
-            ax.plot(x, filas - y - 1, 'o', markersize=18, 
-                    markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=20)
-            ax.text(x, filas - y - 1, str(agent.unique_id), color='white', 
-                    fontsize=10, ha='center', va='center', zorder=21)
-        
-        # Agregar bomberos a la leyenda
-        bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
-                                 markerfacecolor='blue', markeredgecolor='navy', 
-                                 alpha=0.7, linestyle='', label='Bombero')
+            # Dibujamos bomberos con coordenadas ajustadas
+            ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=24, 
+                    markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
+            ax.text(x + 0.5, filas - y - 0.5, str(agent.unique_id), color='white', 
+                    fontsize=12, ha='center', va='center', zorder=26)
         
         # Actualizar título si hay un modelo
         ax.set_title(f"Simulación - Paso {model.step_count}")
-        
-        # Añadir bombero a los elementos de la leyenda
-        handles = [perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
-                  fire_marker, victim_marker, false_alarm_marker, bombero_marker]
-    else:
-        handles = [perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
-                  fire_marker, victim_marker, false_alarm_marker]
     
-    # Actualizar la leyenda
-    ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=5)
-
-    # Aspecto visual
+    # Aspecto visual 
     ax.set_xticks(range(columnas))
     ax.set_yticks(range(filas))
     ax.set_xticklabels(range(columnas))
     ax.set_yticklabels(range(filas - 1, -1, -1))
     ax.set_aspect('equal')
-    ax.set_xlim(0, columnas)
-    ax.set_ylim(0, filas)
-    ax.set_title("Mapa del Escenario 6×8 con Perímetro (8×10), Muros y Puertas")
+    
+    # NO fijar estos límites, pues restringen la visualización de los bomberos
+    # ax.set_xlim(0, columnas) 
+    # ax.set_ylim(0, filas)
+    
+    # IMPORTANTE: Actualizar el título para reflejar el paso actual
+    if model is not None:
+        ax.set_title(f"Simulación - Paso {model.step_count}")
+    else:
+        ax.set_title("Mapa del Escenario 6×8 con Perímetro (8×10), Muros y Puertas")
+    
     ax.grid(False)
     plt.tight_layout()
     plt.show()
@@ -466,48 +475,15 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
 
 def visualizar_simulacion(model):
     """Visualiza el estado actual de la simulación, incluyendo bomberos"""
-    filas, columnas = model.grid_state.shape
-    
     # Reutilizamos la visualización base de la grilla
     visualizar_grid_con_perimetro_y_puertas(
         model.scenario["grid_walls"], 
         compute_door_positions(model.scenario["doors"]), 
         model.scenario["entries"],
         model.scenario["fires"],   
-        model.scenario["pois"]      
+        model.scenario["pois"],
+        model  
     )
-    
-    # Crear una nueva figura para mostrar los bomberos superpuestos
-    fig, ax = plt.subplots(figsize=(12, 10))
-    ax.set_facecolor('#d9f2d9')  # Fondo verde claro
-    
-    # Dibujar bomberos como círculos azules con número de identificación
-    for agent in model.schedule.agents:
-        x, y = agent.pos  # Mesa usa (x=columna, y=fila)
-        ax.plot(x, filas - y - 1, 'o', markersize=18, 
-                markerfacecolor='blue', markeredgecolor='navy', alpha=0.7)
-        ax.text(x, filas - y - 1, str(agent.unique_id), color='white', 
-                fontsize=10, ha='center', va='center')
-    
-    # Agregar leyenda para los bomberos
-    bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
-                             markerfacecolor='blue', markeredgecolor='navy', 
-                             alpha=0.7, linestyle='', label='Bombero')
-    ax.legend(handles=[bombero_marker], loc='upper center')
-    
-    # Ajustar aspecto visual
-    ax.set_xticks(range(columnas))
-    ax.set_yticks(range(filas))
-    ax.set_xticklabels(range(columnas))
-    ax.set_yticklabels(range(filas - 1, -1, -1))
-    ax.set_aspect('equal')
-    ax.set_xlim(0, columnas)
-    ax.set_ylim(0, filas)
-    ax.set_title(f"Bomberos - Paso {model.step_count}")
-    plt.tight_layout()
-    plt.show()
-
-
 
 class FirefighterAgent:
     """Agente bombero que rescata víctimas del incendio"""
@@ -518,8 +494,16 @@ class FirefighterAgent:
         self.pos = pos
         self.ap = 4  # Puntos de acción
         self.carrying = False  # Si está cargando una víctima
+        self.entrada_asignada = None  # La entrada a la que debe dirigirse
+        self.direccion = None  # Dirección desde la que entra
     
     def step(self):
+        if self.model.stage == 1 and self.entrada_asignada is not None:
+            # Entrar al tablero en el primer paso
+            self.model.grid.move_agent(self, self.entrada_asignada)
+            print(f"Bombero {self.unique_id} entra al tablero por la entrada {self.entrada_asignada}")
+            self.entrada_asignada = None  # Ya entramos, no necesitamos recordar la entrada
+        
         # Por ahora solo imprimimos el estado del agente
         print(f"Bombero {self.unique_id} en {self.pos} con AP={self.ap}, cargando={self.carrying}")
 
@@ -540,34 +524,79 @@ class FireRescueModel(Model):
         self.scenario = scenario
         self.grid_state = build_grid_state(scenario)
         
-        # Colocar bomberos en las entradas
+        # Colocar bomberos fuera del tablero, junto a las entradas
         self.create_agents()
         
         # Contador para llevar el número de pasos
         self.step_count = 0
+        
+        # Etapa: 0=inicial (bomberos afuera), 1=bomberos entrando, 2+=simulación normal
+        self.stage = 0
     
     def create_agents(self):
-        """Crear los agentes bomberos en las posiciones de entrada"""
+        """Crear los agentes bomberos en posiciones fuera del tablero, junto a las entradas"""
         for i, pos in enumerate(self.scenario["entries"]):
-            # Invertir coordenadas: Mesa usa (x=columna, y=fila) pero tenemos (fila, columna)
+            # Determinar la dirección de la entrada y posición externa
             fila, columna = pos
-            pos_mesa = (columna, fila)  # Corregir orden para Mesa
             
-            # Verificar si la celda ya está ocupada (importante en SingleGrid)
-            if self.grid.is_cell_empty(pos_mesa):
-                agent = FirefighterAgent(i, self, pos_mesa)
-                self.schedule.add(agent)
-                self.grid.place_agent(agent, pos_mesa)
-                print(f"Bombero {i} colocado en la entrada {pos} (Mesa: {pos_mesa})")
+            # Determinar qué borde está más cerca para colocar al bombero fuera
+            filas, columnas = self.grid_state.shape
+            dist_norte = fila
+            dist_sur = filas - 1 - fila
+            dist_oeste = columna
+            dist_este = columnas - 1 - columna
+            
+            # Determinar coordenadas externas según la dirección más cercana
+            if dist_norte <= min(dist_sur, dist_oeste, dist_este):
+                # Entrada desde el norte, bombero arriba de la entrada
+                fila_ext, col_ext = fila - 1, columna
+                direccion = "norte"
+            elif dist_sur <= min(dist_norte, dist_oeste, dist_este):
+                # Entrada desde el sur, bombero debajo de la entrada
+                fila_ext, col_ext = fila + 1, columna
+                direccion = "sur"
+            elif dist_oeste <= min(dist_norte, dist_sur, dist_este):
+                # Entrada desde el oeste, bombero a la izquierda de la entrada
+                fila_ext, col_ext = fila, columna - 1
+                direccion = "oeste"
             else:
-                print(f"ADVERTENCIA: No se pudo colocar bombero en {pos} (Mesa: {pos_mesa}), celda ya ocupada")
+                # Entrada desde el este, bombero a la derecha de la entrada
+                fila_ext, col_ext = fila, columna + 1
+                direccion = "este"
+            
+            # Crear posición externa para Mesa (x=columna, y=fila)
+            pos_mesa_ext = (col_ext, fila_ext)
+            
+            # Creamos el agente
+            agent = FirefighterAgent(i, self, pos_mesa_ext)
+            agent.entrada_asignada = (columna, fila)  # Guardamos entrada asignada
+            agent.direccion = direccion  # Guardamos la dirección
+            
+            # IMPORTANTE: Registrar el agente en el grid para visualización
+            try:
+                self.grid.place_agent(agent, pos_mesa_ext)  # Añadir esta línea
+                print(f"Bombero {i} colocado en {pos_mesa_ext}")
+            except Exception as e:
+                # Si falla, registrarlo en la celda más cercana válida
+                print(f"No se pudo colocar bombero en {pos_mesa_ext}: {e}")
+                # Usar posición de entrada como alternativa
+                self.grid.place_agent(agent, (columna, fila))
+                print(f"Bombero {i} colocado en la entrada {columna, fila}")
+                
+            self.schedule.add(agent)
     
     def step(self):
         """Avanzar la simulación un paso"""
         self.step_count += 1
-        print(f"\n--- Paso {self.step_count} ---")
+        
+        if self.stage == 0:
+            print(f"\n--- Paso {self.step_count}: Bomberos entrando al tablero ---")
+            self.stage = 1
+            # Los bomberos se moverán a sus entradas en este paso
+        else:
+            print(f"\n--- Paso {self.step_count} ---")
+            
         self.schedule.step()
-
 
 
 # Parsear el escenario completo
@@ -607,21 +636,16 @@ print("\n=== INICIANDO SIMULACIÓN ===")
 model = FireRescueModel(scenario)
 
 # Ejecutar dos pasos de simulación para verificar funcionamiento
-# Reemplazar estas líneas al final del archivo:
-print("\n=== SIMULACIÓN EN PROGRESO ===")
-model.step()  # Paso 1
-model.step()  # Paso 2
-print("\n=== SIMULACIÓN FINALIZADA ===")
-
-# Por estas líneas:
 print("\n=== SIMULACIÓN EN PROGRESO ===")
 print("\n--- Estado inicial ---")
-visualizar_simulacion(model)  # Visualizar estado inicial
+visualizar_simulacion(model)  # Visualizar estado inicial (paso 0)
 
-model.step()  # Paso 1
+model.step()  # Paso 1 (bomberos entrando)
+print("\n--- Paso 1: Bomberos entrando al tablero ---")
 visualizar_simulacion(model)  # Visualizar después del paso 1
 
-model.step()  # Paso 2
+model.step()  # Paso 2 (bomberos ya dentro)
+print("\n--- Paso 2: Bomberos dentro del tablero ---")
 visualizar_simulacion(model)  # Visualizar después del paso 2
 
 print("\n=== SIMULACIÓN FINALIZADA ===")
