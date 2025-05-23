@@ -1,75 +1,273 @@
+
+from mesa import Agent, Model
+from mesa.time import RandomActivation
+from mesa.space import SingleGrid  # Usamos SingleGrid en lugar de MultiGrid
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-# Contenido del escenario (6x8)
+# Contenido del escenario (formato completo)
 scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
 0001 0000 0110 0011 0010 0010 0010 0100
 0000 0000 1001 1000 1000 1100 1001 0100
 0011 0110 0011 0000 0010 0010 0010 0010
 1001 1000 1000 0000 1100 1001 1100 1101
-0011 0010 0000 0010 0010 0010 0010 0110"""
+0011 0010 0000 0010 0010 0010 0010 0110
+2 4 v
+5 1 f
+5 8 v
+2 2
+2 3
+3 2
+3 3 
+3 4
+3 5
+4 4
+5 6
+5 7
+6 6
+1 3 1 4
+2 5 2 6
+2 8 3 8
+3 2 3 3
+4 4 5 4
+4 6 4 7
+6 5 6 6
+6 7 6 8
+1 6
+3 1
+4 8
+6 3"""
 
-# Paso 1: Parsear el contenido a matriz (6, 8, 4)
-original_grid = np.zeros((6, 8, 4), dtype=int)
-for i, line in enumerate(scenario_content.strip().split('\n')):
-    for j, cell in enumerate(line.strip().split()):
-        original_grid[i, j] = [int(d) for d in cell]
-
-# Paso 2: Crear grid extendido con perímetro (8, 10, 4)
-grid = np.zeros((8, 10, 4), dtype=int)
-
-# Copiar escenario original en centro (1:7, 1:9)
-grid[1:7, 1:9] = original_grid
-
-# Agregar muros en el perímetro externo
-grid[0, 1:9, 0] = 1  # Norte
-grid[7, 1:9, 2] = 1  # Sur
-grid[1:7, 0, 3] = 1  # Oeste
-grid[1:7, 9, 1] = 1  # Este
-
-# 4. Puertas (siempre comienzan cerradas): 
-#    cada tupla ((r1,c1),(r2,c2)) une dos celdas adyacentes
-doors = [
-    ((1,3),(1,4)),
-    ((2,5),(2,6)),
-    ((2,8),(3,8)),
-    ((3,2),(3,3)),
-    ((4,4),(5,4)),
-    ((4,6),(4,7)),
-    ((6,5),(6,6)),
-    ((6,7),(6,8)),
-]
-
-entries = [
-    (1,6),
-    (3,1),
-    (4,8),
-    (6,3),
-]
-
-
-# Función para marcar puertas en grid (convertimos coordenadas a índices de la grid con perímetro)
-door_positions = []
-for (r1, c1), (r2, c2) in doors:
-    # Ajustar índices para el grid con perímetro
-    r1_adj, c1_adj = r1, c1
-    r2_adj, c2_adj = r2, c2
+def parse_grid_walls(lines):
+    """Parsea las 6 primeras líneas del escenario para obtener los muros"""
+    original_grid = np.zeros((6, 8, 4), dtype=int)
+    for i, line in enumerate(lines[:6]):
+        for j, cell in enumerate(line.strip().split()):
+            original_grid[i, j] = [int(d) for d in cell]
     
-    # Determinar en qué dirección está la puerta
-    if r1 == r2:  # Puerta horizontal (este-oeste)
-        if c1 < c2:  # c1 está a la izquierda de c2
-            door_positions.append((r1_adj, c1_adj, 1))  # Puerta en el este de celda 1
-        else:
-            door_positions.append((r1_adj, c2_adj, 1))  # Puerta en el este de celda 2
-    else:  # Puerta vertical (norte-sur)
-        if r1 < r2:  # r1 está arriba de r2
-            door_positions.append((r1_adj, c1_adj, 2))  # Puerta en el sur de celda 1
-        else:
-            door_positions.append((r2_adj, c2_adj, 2))  # Puerta en el sur de celda 2
+    # Crear grid extendido con perímetro (8, 10, 4)
+    grid = np.zeros((8, 10, 4), dtype=int)
 
-# Función de visualización con cuadrícula + muros + perímetro + puertas
-def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries):
+    # Copiar escenario original en centro (1:7, 1:9)
+    grid[1:7, 1:9] = original_grid
+
+    # Agregar muros en el perímetro externo
+    grid[0, 1:9, 0] = 1  # Norte
+    grid[7, 1:9, 2] = 1  # Sur
+    grid[1:7, 0, 3] = 1  # Oeste
+    grid[1:7, 9, 1] = 1  # Este
+    
+    print("Muros parseados correctamente.")
+    return grid
+
+def parse_pois(lines):
+    """Parsea las líneas de Puntos de Interés (POI)"""
+    pois = []
+    poi_lines = lines[6:9]  # 3 líneas después de los muros
+    
+    for line in poi_lines:
+        parts = line.strip().split()
+        if len(parts) == 3:
+            row, col, poi_type = parts
+            # Convertir a coordenadas 0-based y considerar perímetro (+1)
+            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+            pois.append((row_idx, col_idx, poi_type))
+    
+    print(f"POIs parseados: {pois}")
+    return pois
+
+def parse_fires(lines):
+    """Parsea las líneas de fuego inicial"""
+    fires = []
+    fire_lines = lines[9:19]  # 10 líneas después de los POIs
+    
+    for line in fire_lines:
+        parts = line.strip().split()
+        if len(parts) == 2:
+            row, col = parts
+            # Convertir a coordenadas 0-based y considerar perímetro (+1)
+            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+            fires.append((row_idx, col_idx))
+    
+    print(f"Fuegos iniciales parseados: {fires}")
+    return fires
+
+def parse_doors(lines):
+    """Parsea las líneas de puertas"""
+    doors = []
+    door_lines = lines[19:27]  # 8 líneas después de los fuegos
+    
+    for line in door_lines:
+        parts = line.strip().split()
+        if len(parts) == 4:
+            r1, c1, r2, c2 = parts
+            # Convertir a coordenadas 0-based y considerar perímetro (+1)
+            r1_idx, c1_idx = int(r1) - 1 + 1, int(c1) - 1 + 1
+            r2_idx, c2_idx = int(r2) - 1 + 1, int(c2) - 1 + 1
+            doors.append(((r1_idx, c1_idx), (r2_idx, c2_idx)))
+    
+    print(f"Puertas parseadas: {doors}")
+    return doors
+
+def parse_entries(lines):
+    """Parsea las líneas de entradas de bomberos"""
+    entries = []
+    entry_lines = lines[27:31]  # 4 líneas después de las puertas
+    
+    for line in entry_lines:
+        parts = line.strip().split()
+        if len(parts) == 2:
+            row, col = parts
+            # Convertir a coordenadas 0-based y considerar perímetro (+1)
+            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+            entries.append((row_idx, col_idx))
+    
+    print(f"Entradas parseadas: {entries}")
+    return entries
+
+def parse_scenario(scenario_text):
+    """Función principal que parsea todo el contenido del escenario"""
+    lines = scenario_text.strip().split('\n')
+    
+    # Validar que haya suficientes líneas
+    if len(lines) < 31:
+        print(f"Error: El escenario debe tener al menos 31 líneas, tiene {len(lines)}")
+        return None
+    
+    # Parsear cada componente
+    grid = parse_grid_walls(lines)
+    pois = parse_pois(lines)
+    fires = parse_fires(lines)
+    doors = parse_doors(lines)
+    entries = parse_entries(lines)
+    
+    # Crear diccionario de escenario
+    scenario = {
+        "grid_walls": grid,
+        "pois": pois,
+        "fires": fires,
+        "doors": doors,
+        "entries": entries
+    }
+    
+    print("Escenario parseado completamente.")
+    return scenario
+
+def compute_door_positions(doors):
+    """Calcula las posiciones de las puertas para la visualización"""
+    door_positions = []
+    for (r1, c1), (r2, c2) in doors:
+        # Determinar en qué dirección está la puerta
+        if r1 == r2:  # Puerta horizontal (este-oeste)
+            if c1 < c2:  # c1 está a la izquierda de c2
+                door_positions.append((r1, c1, 1))  # Puerta en el este de celda 1
+            else:
+                door_positions.append((r1, c2, 1))  # Puerta en el este de celda 2
+        else:  # Puerta vertical (norte-sur)
+            if r1 < r2:  # r1 está arriba de r2
+                door_positions.append((r1, c1, 2))  # Puerta en el sur de celda 1
+            else:
+                door_positions.append((r2, c2, 2))  # Puerta en el sur de celda 2
+    
+    return door_positions
+
+def build_grid_state(scenario):
+    """Construye una matriz de celdas donde cada celda es un diccionario con estado completo"""
+    filas, columnas = scenario["grid_walls"].shape[:2]
+    
+    # Crear matriz vacía
+    grid_state = np.empty((filas, columnas), dtype=object)
+    
+    # Calcular posiciones de puertas para identificar celdas con puertas
+    door_positions = compute_door_positions(scenario["doors"])
+    
+    # Inicializar cada celda
+    for y in range(filas):
+        for x in range(columnas):
+            # Obtener información de muros
+            walls = scenario["grid_walls"][y, x].tolist()
+            
+            # Verificar si hay fuego
+            fire = (y, x) in scenario["fires"]
+            
+            # Verificar si hay puerta en alguna dirección
+            door = any((y, x, d) in door_positions for d in range(4))
+            
+            # Verificar si hay POI y de qué tipo
+            poi = None
+            for p_y, p_x, p_type in scenario["pois"]:
+                if p_y == y and p_x == x:
+                    poi = p_type
+                    break
+            
+            # Crear diccionario de celda
+            cell = {
+                "walls": walls,
+                "fire": fire,
+                "smoke": False,
+                "damage": 0,
+                "door": door,
+                "poi": poi
+            }
+            
+            # Asignar a la matriz
+            grid_state[y, x] = cell
+    
+    return grid_state
+
+def print_cell_info(grid_state, y, x):
+    """Imprime información detallada de una celda para verificación"""
+    cell = grid_state[y, x]
+    print(f"Celda ({y}, {x}):")
+    print(f"  Muros (NESO): {cell['walls']}")
+    print(f"  Fuego: {cell['fire']}")
+    print(f"  Humo: {cell['smoke']}")
+    print(f"  Daño: {cell['damage']}")
+    print(f"  Puerta: {cell['door']}")
+    print(f"  POI: {cell['poi']}")
+    print()
+
+def verify_grid_state(grid_state):
+    """Verifica que algunas celdas estén correctamente inicializadas"""
+    filas, columnas = grid_state.shape
+    
+    # Verificar las esquinas
+    print("=== ESQUINAS ===")
+    print_cell_info(grid_state, 0, 0)             # Esquina superior izquierda
+    print_cell_info(grid_state, 0, columnas-1)    # Esquina superior derecha
+    print_cell_info(grid_state, filas-1, 0)       # Esquina inferior izquierda
+    print_cell_info(grid_state, filas-1, columnas-1)  # Esquina inferior derecha
+    
+    # Verificar algunas celdas con características especiales
+    print("=== CELDAS INTERIORES ===")
+    
+    # Buscar una celda con fuego
+    for y in range(filas):
+        for x in range(columnas):
+            if grid_state[y, x]["fire"]:
+                print("Celda con FUEGO:")
+                print_cell_info(grid_state, y, x)
+                break
+    
+    # Buscar una celda con puerta
+    for y in range(filas):
+        for x in range(columnas):
+            if grid_state[y, x]["door"]:
+                print("Celda con PUERTA:")
+                print_cell_info(grid_state, y, x)
+                break
+    
+    # Buscar una celda con POI
+    for y in range(filas):
+        for x in range(columnas):
+            if grid_state[y, x]["poi"] is not None:
+                print(f"Celda con POI (tipo {grid_state[y, x]['poi']}):")
+                print_cell_info(grid_state, y, x)
+                break
+
+# Función de visualización 
+def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires=None, pois=None):
     filas, columnas = grid.shape[:2]
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_facecolor('#d9f2d9')  # Fondo verde claro
@@ -97,8 +295,13 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries):
 
     for y in range(filas):
         for x in range(columnas):
-            # Fondo: solo perímetro o jugable
-            if x == 0 or x == columnas-1 or y == 0 or y == filas-1:
+            # Verificar si hay fuego en esta celda
+            is_fire = (y, x) in fires if fires else False
+            
+            # Determinar el color de fondo según la celda
+            if is_fire:
+                color = '#ffcccc'  # Color rojizo claro para fuego
+            elif x == 0 or x == columnas-1 or y == 0 or y == filas-1:
                 color = '#b3e6b3'  # Color verde claro para perímetro
             else:
                 color = '#e6f7ff'  # Color azul claro para celdas jugables
@@ -112,6 +315,24 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries):
             ax.plot([x, x], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
             ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
 
+            # Dibujar símbolos para fuego si corresponde
+            if is_fire:
+                ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=15, 
+                        markerfacecolor='#ff6600', markeredgecolor='red', alpha=0.7)
+                ax.plot(x + 0.5, filas - y - 0.5, '*', markersize=10, 
+                        markerfacecolor='yellow', markeredgecolor='yellow')
+
+            # Verificar si hay un POI en esta posición
+            if pois:
+                for poi_y, poi_x, poi_type in pois:
+                    if poi_y == y and poi_x == x:
+                        if poi_type == 'v':  # Víctima
+                            ax.plot(x + 0.5, filas - y - 0.5, 'D', markersize=12, 
+                                    markerfacecolor='#00cc66', markeredgecolor='black', zorder=10)
+                        elif poi_type == 'f':  # Falsa alarma
+                            ax.plot(x + 0.5, filas - y - 0.5, 'X', markersize=12, 
+                                    markerfacecolor='#cccccc', markeredgecolor='black', zorder=10)
+                            
             # Determinar si es una celda de perímetro
             es_perimetro = (x == 0 or x == columnas-1 or y == 0 or y == filas-1)
 
@@ -181,15 +402,52 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries):
                     # Dibujar muro oeste
                     ax.plot([x, x], [filas - y - 1, filas - y], color='black', linewidth=2.5)
                     
-    # Agregar leyenda
+    # Agregar elementos a la leyenda
     entrada_line = plt.Line2D([0], [0], color='white', linewidth=4.0, label='Entrada bomberos')
     perimetro_patch = patches.Patch(color='#b3e6b3', label='Perímetro')
     jugable_patch = patches.Patch(color='#e6f7ff', label='Celda jugable')
     puerta_line = plt.Line2D([0], [0], color='brown', linewidth=2.5, label='Puerta')
     muro_line = plt.Line2D([0], [0], color='black', linewidth=2.5, label='Muro')
     
-    ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line], 
-              loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=5)
+    # Nuevos elementos para la leyenda
+    fire_marker = plt.Line2D([0], [0], marker='o', markersize=15, markerfacecolor='#ff6600', 
+                             markeredgecolor='red', alpha=0.7, linestyle='', label='Fuego')
+    victim_marker = plt.Line2D([0], [0], marker='D', markersize=12, markerfacecolor='#00cc66', 
+                             markeredgecolor='black', linestyle='', label='Víctima (POI)')
+    false_alarm_marker = plt.Line2D([0], [0], marker='X', markersize=12, markerfacecolor='#cccccc', 
+                             markeredgecolor='black', linestyle='', label='Falsa alarma (POI)')
+    
+    ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
+                      fire_marker, victim_marker, false_alarm_marker], 
+              loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
+
+
+    if model is not None:
+        # Dibujar bomberos como círculos azules con número de identificación
+        for agent in model.schedule.agents:
+            x, y = agent.pos  # Mesa usa (x=columna, y=fila)
+            ax.plot(x, filas - y - 1, 'o', markersize=18, 
+                    markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=20)
+            ax.text(x, filas - y - 1, str(agent.unique_id), color='white', 
+                    fontsize=10, ha='center', va='center', zorder=21)
+        
+        # Agregar bomberos a la leyenda
+        bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
+                                 markerfacecolor='blue', markeredgecolor='navy', 
+                                 alpha=0.7, linestyle='', label='Bombero')
+        
+        # Actualizar título si hay un modelo
+        ax.set_title(f"Simulación - Paso {model.step_count}")
+        
+        # Añadir bombero a los elementos de la leyenda
+        handles = [perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
+                  fire_marker, victim_marker, false_alarm_marker, bombero_marker]
+    else:
+        handles = [perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
+                  fire_marker, victim_marker, false_alarm_marker]
+    
+    # Actualizar la leyenda
+    ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=5)
 
     # Aspecto visual
     ax.set_xticks(range(columnas))
@@ -204,5 +462,166 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries):
     plt.tight_layout()
     plt.show()
 
+# Agregar después de la función visualizar_grid_con_perimetro_y_puertas y antes de la definición de clases
+
+def visualizar_simulacion(model):
+    """Visualiza el estado actual de la simulación, incluyendo bomberos"""
+    filas, columnas = model.grid_state.shape
+    
+    # Reutilizamos la visualización base de la grilla
+    visualizar_grid_con_perimetro_y_puertas(
+        model.scenario["grid_walls"], 
+        compute_door_positions(model.scenario["doors"]), 
+        model.scenario["entries"],
+        model.scenario["fires"],   
+        model.scenario["pois"]      
+    )
+    
+    # Crear una nueva figura para mostrar los bomberos superpuestos
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ax.set_facecolor('#d9f2d9')  # Fondo verde claro
+    
+    # Dibujar bomberos como círculos azules con número de identificación
+    for agent in model.schedule.agents:
+        x, y = agent.pos  # Mesa usa (x=columna, y=fila)
+        ax.plot(x, filas - y - 1, 'o', markersize=18, 
+                markerfacecolor='blue', markeredgecolor='navy', alpha=0.7)
+        ax.text(x, filas - y - 1, str(agent.unique_id), color='white', 
+                fontsize=10, ha='center', va='center')
+    
+    # Agregar leyenda para los bomberos
+    bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
+                             markerfacecolor='blue', markeredgecolor='navy', 
+                             alpha=0.7, linestyle='', label='Bombero')
+    ax.legend(handles=[bombero_marker], loc='upper center')
+    
+    # Ajustar aspecto visual
+    ax.set_xticks(range(columnas))
+    ax.set_yticks(range(filas))
+    ax.set_xticklabels(range(columnas))
+    ax.set_yticklabels(range(filas - 1, -1, -1))
+    ax.set_aspect('equal')
+    ax.set_xlim(0, columnas)
+    ax.set_ylim(0, filas)
+    ax.set_title(f"Bomberos - Paso {model.step_count}")
+    plt.tight_layout()
+    plt.show()
+
+
+
+class FirefighterAgent:
+    """Agente bombero que rescata víctimas del incendio"""
+    
+    def __init__(self, unique_id, model, pos):
+        self.unique_id = unique_id
+        self.model = model
+        self.pos = pos
+        self.ap = 4  # Puntos de acción
+        self.carrying = False  # Si está cargando una víctima
+    
+    def step(self):
+        # Por ahora solo imprimimos el estado del agente
+        print(f"Bombero {self.unique_id} en {self.pos} con AP={self.ap}, cargando={self.carrying}")
+
+
+class FireRescueModel(Model):
+    """Modelo de simulación de rescate en incendio"""
+    
+    def __init__(self, scenario):
+        super().__init__()
+        
+        # Configurar el espacio (ancho=10, alto=8)
+        self.grid = SingleGrid(10, 8, False)  # SingleGrid en lugar de MultiGrid
+        
+        # Configurar el scheduler con activación aleatoria
+        self.schedule = RandomActivation(self)
+        
+        # Almacenar el escenario y el estado de la grilla
+        self.scenario = scenario
+        self.grid_state = build_grid_state(scenario)
+        
+        # Colocar bomberos en las entradas
+        self.create_agents()
+        
+        # Contador para llevar el número de pasos
+        self.step_count = 0
+    
+    def create_agents(self):
+        """Crear los agentes bomberos en las posiciones de entrada"""
+        for i, pos in enumerate(self.scenario["entries"]):
+            # Invertir coordenadas: Mesa usa (x=columna, y=fila) pero tenemos (fila, columna)
+            fila, columna = pos
+            pos_mesa = (columna, fila)  # Corregir orden para Mesa
+            
+            # Verificar si la celda ya está ocupada (importante en SingleGrid)
+            if self.grid.is_cell_empty(pos_mesa):
+                agent = FirefighterAgent(i, self, pos_mesa)
+                self.schedule.add(agent)
+                self.grid.place_agent(agent, pos_mesa)
+                print(f"Bombero {i} colocado en la entrada {pos} (Mesa: {pos_mesa})")
+            else:
+                print(f"ADVERTENCIA: No se pudo colocar bombero en {pos} (Mesa: {pos_mesa}), celda ya ocupada")
+    
+    def step(self):
+        """Avanzar la simulación un paso"""
+        self.step_count += 1
+        print(f"\n--- Paso {self.step_count} ---")
+        self.schedule.step()
+
+
+
+# Parsear el escenario completo
+scenario = parse_scenario(scenario_content)
+
+# Calcular posiciones de puertas para visualización
+door_positions = compute_door_positions(scenario["doors"])
+
 # Mostrar mapa final con puertas
-visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries)
+visualizar_grid_con_perimetro_y_puertas(
+    scenario["grid_walls"], 
+    door_positions, 
+    scenario["entries"],
+    scenario["fires"],   
+    scenario["pois"]      
+)
+
+# Construir el estado de la grilla
+print("\n=== CONSTRUYENDO ESTADO DE LA GRILLA ===")
+grid_state = build_grid_state(scenario)
+
+# Verificar que esté correctamente inicializado
+verify_grid_state(grid_state)
+
+# Información adicional
+print("\nResumen del escenario y estado de grilla:")
+print(f"Dimensiones del grid: {scenario['grid_walls'].shape}")
+print(f"Número de POIs: {len(scenario['pois'])}")
+print(f"Número de incendios iniciales: {len(scenario['fires'])}")
+print(f"Número de puertas: {len(scenario['doors'])}")
+print(f"Número de entradas: {len(scenario['entries'])}")
+
+
+print("\n=== INICIANDO SIMULACIÓN ===")
+
+# Inicializar el modelo con nuestro escenario
+model = FireRescueModel(scenario)
+
+# Ejecutar dos pasos de simulación para verificar funcionamiento
+# Reemplazar estas líneas al final del archivo:
+print("\n=== SIMULACIÓN EN PROGRESO ===")
+model.step()  # Paso 1
+model.step()  # Paso 2
+print("\n=== SIMULACIÓN FINALIZADA ===")
+
+# Por estas líneas:
+print("\n=== SIMULACIÓN EN PROGRESO ===")
+print("\n--- Estado inicial ---")
+visualizar_simulacion(model)  # Visualizar estado inicial
+
+model.step()  # Paso 1
+visualizar_simulacion(model)  # Visualizar después del paso 1
+
+model.step()  # Paso 2
+visualizar_simulacion(model)  # Visualizar después del paso 2
+
+print("\n=== SIMULACIÓN FINALIZADA ===")
