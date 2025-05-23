@@ -485,28 +485,129 @@ def visualizar_simulacion(model):
         model  
     )
 
-class FirefighterAgent:
+class FirefighterAgent (Agent):
     """Agente bombero que rescata víctimas del incendio"""
     
     def __init__(self, unique_id, model, pos):
+        super().__init__(model)
         self.unique_id = unique_id
-        self.model = model
-        self.pos = pos
         self.ap = 4  # Puntos de acción
         self.carrying = False  # Si está cargando una víctima
         self.entrada_asignada = None  # La entrada a la que debe dirigirse
         self.direccion = None  # Dirección desde la que entra
     
     def step(self):
+        # Iniciar reporte de uso de AP
+        print(f"\n[Bombero {self.unique_id}] Inicia turno con {self.ap} AP")
+        
+        # Si estamos en la fase de entrada al tablero
         if self.model.stage == 1 and self.entrada_asignada is not None:
             # Entrar al tablero en el primer paso
             self.model.grid.move_agent(self, self.entrada_asignada)
-            print(f"Bombero {self.unique_id} entra al tablero por la entrada {self.entrada_asignada}")
+            print(f"[Bombero {self.unique_id}] ACCIÓN: Entra al tablero por la entrada {self.entrada_asignada}")
             self.entrada_asignada = None  # Ya entramos, no necesitamos recordar la entrada
+            return  # Salimos porque usar la entrada consume el turno
         
-        # Por ahora solo imprimimos el estado del agente
-        print(f"Bombero {self.unique_id} en {self.pos} con AP={self.ap}, cargando={self.carrying}")
-
+        # Mientras tenga puntos de acción, moverse aleatoriamente
+        while self.ap > 0:
+            # Obtener posición actual
+            x, y = self.pos  # Mesa usa (x=columna, y=fila)
+            
+            # Obtener celda actual y sus muros [N, E, S, O]
+            celda_actual = self.model.grid_state[y, x]
+            muros = celda_actual["walls"]
+            
+            # Posibles movimientos (N, E, S, O) y sus coordenadas relativas
+            movimientos = []
+            
+            # Norte (y-1)
+            if not muros[0] and y > 0:  # No hay muro al norte y no estamos en el borde
+                pos_norte = (x, y - 1)
+                # Verificar si la celda está vacía
+                if self.model.grid.is_cell_empty(pos_norte):
+                    # Verificar si estamos saliendo del área jugable (entrando al perímetro)
+                    es_perimetro = pos_norte[0] == 0 or pos_norte[0] == self.model.grid.width - 1 or \
+                                  pos_norte[1] == 0 or pos_norte[1] == self.model.grid.height - 1
+                    
+                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                    es_entrada = pos_norte in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                    
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_norte)
+            
+            # Este (x+1)
+            if not muros[1] and x < self.model.grid.width - 1:  # No hay muro al este y no estamos en el borde
+                pos_este = (x + 1, y)
+                # Verificar si la celda está vacía
+                if self.model.grid.is_cell_empty(pos_este):
+                    # Verificar si estamos saliendo del área jugable
+                    es_perimetro = pos_este[0] == 0 or pos_este[0] == self.model.grid.width - 1 or \
+                                  pos_este[1] == 0 or pos_este[1] == self.model.grid.height - 1
+                    
+                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                    es_entrada = pos_este in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                    
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_este)
+            
+            # Sur (y+1)
+            if not muros[2] and y < self.model.grid.height - 1:  # No hay muro al sur y no estamos en el borde
+                pos_sur = (x, y + 1)
+                # Verificar si la celda está vacía
+                if self.model.grid.is_cell_empty(pos_sur):
+                    # Verificar si estamos saliendo del área jugable
+                    es_perimetro = pos_sur[0] == 0 or pos_sur[0] == self.model.grid.width - 1 or \
+                                  pos_sur[1] == 0 or pos_sur[1] == self.model.grid.height - 1
+                    
+                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                    es_entrada = pos_sur in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                    
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_sur)
+            
+            # Oeste (x-1)
+            if not muros[3] and x > 0:  # No hay muro al oeste y no estamos en el borde
+                pos_oeste = (x - 1, y)
+                # Verificar si la celda está vacía
+                if self.model.grid.is_cell_empty(pos_oeste):
+                    # Verificar si estamos saliendo del área jugable
+                    es_perimetro = pos_oeste[0] == 0 or pos_oeste[0] == self.model.grid.width - 1 or \
+                                  pos_oeste[1] == 0 or pos_oeste[1] == self.model.grid.height - 1
+                    
+                    # Solo permitir salir si estoy cargando una víctima y la celda es una entrada
+                    es_entrada = pos_oeste in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+                    
+                    if not es_perimetro or (self.carrying and es_entrada):
+                        movimientos.append(pos_oeste)
+            
+            # Si no hay movimientos válidos, terminar el turno
+            if not movimientos:
+                print(f"[Bombero {self.unique_id}] ACCIÓN: No puede moverse desde {self.pos}, AP restante: {self.ap}")
+                break
+            
+            # Elegir una dirección aleatoria
+            nueva_pos = self.model.random.choice(movimientos)
+            
+            # Verificar si es un movimiento hacia una entrada cargando víctima
+            es_entrada = nueva_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+            es_perimetro = nueva_pos[0] == 0 or nueva_pos[0] == self.model.grid.width - 1 or \
+                          nueva_pos[1] == 0 or nueva_pos[1] == self.model.grid.height - 1
+            
+            # Mover al agente
+            self.model.grid.move_agent(self, nueva_pos)
+            
+            # Restar punto de acción
+            self.ap -= 1
+            
+            # Generar mensaje según el tipo de movimiento
+            if self.carrying and es_entrada and es_perimetro:
+                print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Salió por la entrada {nueva_pos} con la víctima. AP restante: {self.ap}")
+                self.carrying = False  # Ya no carga a la víctima
+            else:
+                print(f"[Bombero {self.unique_id}] ACCIÓN: Se movió a {nueva_pos}. AP restante: {self.ap}")
+        
+        # Resumen del turno
+        print(f"[Bombero {self.unique_id}] Finaliza turno. Posición actual: {self.pos}, Cargando víctima: {self.carrying}")
 
 class FireRescueModel(Model):
     """Modelo de simulación de rescate en incendio"""
@@ -596,7 +697,15 @@ class FireRescueModel(Model):
         else:
             print(f"\n--- Paso {self.step_count} ---")
             
+        # Ejecutar paso de cada agente
         self.schedule.step()
+        
+        # Restaurar AP de todos los bomberos al final del turno
+        for agent in self.schedule.agents:
+            agent.ap = 4  # Restaurar a 4 AP
+        
+        # Imprimir resumen del turno
+        print("\n==== Fin del turno ====")
 
 
 # Parsear el escenario completo
