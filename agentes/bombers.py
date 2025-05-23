@@ -321,6 +321,7 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
                         markerfacecolor='#ff6600', markeredgecolor='red', alpha=0.7)
                 ax.plot(x + 0.5, filas - y - 0.5, '*', markersize=10, 
                         markerfacecolor='yellow', markeredgecolor='yellow')
+                
 
             # Verificar si hay un POI en esta posición
             if pois:
@@ -401,7 +402,14 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
                 elif muro_o:
                     # Dibujar muro oeste
                     ax.plot([x, x], [filas - y - 1, filas - y], color='black', linewidth=2.5)
-                    
+    # Dibujar símbolos para humo si corresponde
+    if model is not None:
+        for y in range(filas):
+            for x in range(columnas):
+                if model.grid_state[y, x]["smoke"]:
+                    ax.plot(x + 0.5, filas - y - 0.5, 's', markersize=15, 
+                            markerfacecolor='gray', markeredgecolor='darkgray', alpha=0.5)
+
     # Agregar elementos a la leyenda
     entrada_line = plt.Line2D([0], [0], color='white', linewidth=4.0, label='Entrada bomberos')
     perimetro_patch = patches.Patch(color='#b3e6b3', label='Perímetro')
@@ -411,44 +419,50 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
     
     # Nuevos elementos para la leyenda
     fire_marker = plt.Line2D([0], [0], marker='o', markersize=15, markerfacecolor='#ff6600', 
-                             markeredgecolor='red', alpha=0.7, linestyle='', label='Fuego')
+                            markeredgecolor='red', alpha=0.7, linestyle='', label='Fuego')
     victim_marker = plt.Line2D([0], [0], marker='D', markersize=12, markerfacecolor='#00cc66', 
-                             markeredgecolor='black', linestyle='', label='Víctima (POI)')
+                            markeredgecolor='black', linestyle='', label='Víctima (POI)')
     false_alarm_marker = plt.Line2D([0], [0], marker='X', markersize=12, markerfacecolor='#cccccc', 
-                             markeredgecolor='black', linestyle='', label='Falsa alarma (POI)')
+                            markeredgecolor='black', linestyle='', label='Falsa alarma (POI)')
+    smoke_marker = plt.Line2D([0], [0], marker='s', markersize=15, markerfacecolor='gray', 
+                           markeredgecolor='darkgray', alpha=0.5, linestyle='', label='Humo')
     
-    ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
-                      fire_marker, victim_marker, false_alarm_marker], 
-              loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
-
-
+    # Ajustar límites de visualización para no expandir tanto
     if model is not None:
-        # Agregar bomberos a la leyenda
-        bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
-                                  markerfacecolor='blue', markeredgecolor='navy', 
-                                  alpha=0.7, linestyle='', label='Bombero')
-        
-        # Actualizar la leyenda para incluir bomberos
+        # Límites más ajustados para ver mejor el tablero
+        ax.set_xlim(-0.5, columnas+0.5) 
+        ax.set_ylim(-0.5, filas+0.5)
+    
+    # Definir bombero_marker aquí, antes de usarlo
+    bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
+                               markerfacecolor='blue', markeredgecolor='navy', 
+                               alpha=0.7, linestyle='', label='Bombero')
+
+    # Definir la leyenda correctamente según si hay modelo o no
+    if model is not None:
+        # Leyenda con bomberos
         ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, 
-                          puerta_line, fire_marker, victim_marker, false_alarm_marker,
-                          bombero_marker], 
-                  loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
+                         puerta_line, fire_marker, victim_marker, false_alarm_marker,
+                         bombero_marker, smoke_marker], 
+                 loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
         
         # Configurar límites para ver TODA el área, incluido el exterior
         ax.set_xlim(-1, columnas+1) 
         ax.set_ylim(-1, filas+1)
         
-        # Dibujar bomberos como círculos azules con número de identificación
+        # Dibujar bomberos
         for agent in model.schedule.agents:
             x, y = agent.pos  # Mesa usa (x=columna, y=fila)
             # Dibujamos bomberos con coordenadas ajustadas
             ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=24, 
-                    markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
+                   markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
             ax.text(x + 0.5, filas - y - 0.5, str(agent.unique_id), color='white', 
-                    fontsize=12, ha='center', va='center', zorder=26)
-        
-        # Actualizar título si hay un modelo
-        ax.set_title(f"Simulación - Paso {model.step_count}")
+                   fontsize=12, ha='center', va='center', zorder=26)
+    else:
+        # Leyenda sin bomberos
+        ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
+                         fire_marker, victim_marker, false_alarm_marker, smoke_marker], 
+                 loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
     
     # Aspecto visual 
     ax.set_xticks(range(columnas))
@@ -471,7 +485,92 @@ def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires
     plt.tight_layout()
     plt.show()
 
-# Agregar después de la función visualizar_grid_con_perimetro_y_puertas y antes de la definición de clases
+def advance_fire(model):
+    """Propaga el fuego a través del escenario"""
+    filas, columnas = model.grid_state.shape
+    
+    # Registrar los cambios a realizar (para evitar propagar fuego recién creado en este turno)
+    nuevos_fuegos = []  # Lista de (y, x) donde habrá fuego nuevo
+    nuevos_humos = []   # Lista de (y, x) donde habrá humo nuevo
+    
+    # Paso 1: Detectar propagación del fuego
+    for y in range(filas):
+        for x in range(columnas):
+            # Si la celda tiene fuego, propagar a celdas adyacentes
+            if model.grid_state[y, x]["fire"]:
+                # Obtener los muros de la celda actual
+                muros = model.grid_state[y, x]["walls"]
+                
+                # Verificar propgación hacia el Norte (y-1)
+                if y > 0 and not muros[0]:  # Si no hay muro al norte
+                    # Verificar si la celda norte tiene muro hacia el sur
+                    if not model.grid_state[y-1, x]["walls"][2]:
+                        # Verificar si la celda norte no tiene fuego
+                        if not model.grid_state[y-1, x]["fire"]:
+                            if model.grid_state[y-1, x]["smoke"]:
+                                # Si hay humo, convertir a fuego
+                                nuevos_fuegos.append((y-1, x))
+                            else:
+                                # Si no hay humo, añadir humo
+                                nuevos_humos.append((y-1, x))
+                
+                # Verificar propgación hacia el Este (x+1)
+                if x < columnas-1 and not muros[1]:  # Si no hay muro al este
+                    # Verificar si la celda este tiene muro hacia el oeste
+                    if not model.grid_state[y, x+1]["walls"][3]:
+                        # Verificar si la celda este no tiene fuego
+                        if not model.grid_state[y, x+1]["fire"]:
+                            if model.grid_state[y, x+1]["smoke"]:
+                                # Si hay humo, convertir a fuego
+                                nuevos_fuegos.append((y, x+1))
+                            else:
+                                # Si no hay humo, añadir humo
+                                nuevos_humos.append((y, x+1))
+                
+                # Verificar propgación hacia el Sur (y+1)
+                if y < filas-1 and not muros[2]:  # Si no hay muro al sur
+                    # Verificar si la celda sur tiene muro hacia el norte
+                    if not model.grid_state[y+1, x]["walls"][0]:
+                        # Verificar si la celda sur no tiene fuego
+                        if not model.grid_state[y+1, x]["fire"]:
+                            if model.grid_state[y+1, x]["smoke"]:
+                                # Si hay humo, convertir a fuego
+                                nuevos_fuegos.append((y+1, x))
+                            else:
+                                # Si no hay humo, añadir humo
+                                nuevos_humos.append((y+1, x))
+                
+                # Verificar propgación hacia el Oeste (x-1)
+                if x > 0 and not muros[3]:  # Si no hay muro al oeste
+                    # Verificar si la celda oeste tiene muro hacia el este
+                    if not model.grid_state[y, x-1]["walls"][1]:
+                        # Verificar si la celda oeste no tiene fuego
+                        if not model.grid_state[y, x-1]["fire"]:
+                            if model.grid_state[y, x-1]["smoke"]:
+                                # Si hay humo, convertir a fuego
+                                nuevos_fuegos.append((y, x-1))
+                            else:
+                                # Si no hay humo, añadir humo
+                                nuevos_humos.append((y, x-1))
+    
+    # Paso 2: Aplicar los cambios detectados
+    # Primero aplicamos los nuevos fuegos
+    for y, x in nuevos_fuegos:
+        model.grid_state[y, x]["fire"] = True
+        model.grid_state[y, x]["smoke"] = False  # El humo se convierte en fuego
+        # Añadir a la lista de fuegos del escenario
+        pos_fuego = (y, x)
+        if pos_fuego not in model.scenario["fires"]:
+            model.scenario["fires"].append(pos_fuego)
+        # Imprimir mensaje informativo
+        print(f"🔥 Fuego se propaga a ({x},{y}): había humo → ahora es fuego.")
+    
+    # Luego aplicamos los nuevos humos (evitando duplicados con los nuevos fuegos)
+    for y, x in nuevos_humos:
+        if (y, x) not in nuevos_fuegos:  # Evitar duplicados
+            model.grid_state[y, x]["smoke"] = True
+            # Imprimir mensaje informativo
+            print(f"💨 Fuego genera humo en ({x},{y}).")
 
 def visualizar_simulacion(model):
     """Visualiza el estado actual de la simulación, incluyendo bomberos"""
@@ -699,6 +798,10 @@ class FireRescueModel(Model):
             
         # Ejecutar paso de cada agente
         self.schedule.step()
+        
+        # Propagar el fuego después de que los agentes hayan actuado
+        print("\n=== PROPAGACIÓN DEL FUEGO ===")
+        advance_fire(self)
         
         # Restaurar AP de todos los bomberos al final del turno
         for agent in self.schedule.agents:
