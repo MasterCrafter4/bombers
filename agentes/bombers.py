@@ -696,24 +696,10 @@ def advance_fire(model):
     
     print(f"🎲 Tirada de dados: Punto de ignición en ({columna_aleatoria},{fila_aleatoria})")
     
-    # Caso 1: Celda sin fuego ni humo -> Agregar fuego
+    # Caso 1: Celda sin fuego ni humo -> Agregar HUMO (no fuego)
     if not celda["fire"] and not celda["smoke"]:
-        celda["fire"] = True
-        if (fila_aleatoria, columna_aleatoria) not in model.scenario["fires"]:
-            model.scenario["fires"].append((fila_aleatoria, columna_aleatoria))
-        print(f"🔥 Fuego añadido en ({columna_aleatoria},{fila_aleatoria})")
-        
-        # Verificar si hay víctima en la celda
-        if celda["poi"] == "v":
-            celda["poi"] = None
-            model.victims_lost += 1
-            print(f"💀 Víctima en ({columna_aleatoria},{fila_aleatoria}) murió en el incendio")
-            
-            # Actualizar POIs en el escenario
-            for i, poi in enumerate(model.scenario["pois"]):
-                if poi[0] == fila_aleatoria and poi[1] == columna_aleatoria:
-                    model.scenario["pois"].pop(i)
-                    break
+        celda["smoke"] = True  # Colocar humo en lugar de fuego
+        print(f"💨 Humo añadido en ({columna_aleatoria},{fila_aleatoria})")
     
     # Caso 2: Celda con humo -> Convertir a fuego
     elif not celda["fire"] and celda["smoke"]:
@@ -934,9 +920,138 @@ def propagar_explosion(model, fila, columna, direction):
                     model.scenario["fires"].append((y, x))
                 print(f"🔥 Explosión propaga fuego a ({x},{y})")
             
-            # Si ya hay fuego, la explosión continúa
+            # NUEVO: Si ya hay fuego, se genera una shockwave
             else:
-                print(f"🔥 Explosión atraviesa celda con fuego en ({x},{y})")
+                print(f"🔥 Explosión alcanzó una celda con fuego en ({x},{y})")
+                print(f"⚡ ¡Se genera una SHOCKWAVE en la dirección {dir_name}!")
+                # Iniciar shockwave desde esta celda
+                shockwave(model, y, x, direction)
+                # La explosión se detiene aquí porque ya se generó una shockwave
+                break
+
+
+def shockwave(model, fila, columna, direction):
+    """
+    Propaga una onda expansiva (shockwave) en la dirección especificada
+    cuando una explosión alcanza una celda que ya tiene fuego
+    """
+    filas, columnas = model.grid_state.shape
+    
+    # Determinar la dirección del desplazamiento
+    dx, dy = DirectionHelper.DIRECTIONS[direction]
+    dir_name = DirectionHelper.DIRECTION_NAMES[direction]
+    
+    print(f"⚡ ¡SHOCKWAVE! Onda expansiva iniciada al {dir_name} desde ({columna},{fila})")
+    
+    # Iniciar propagación de la shockwave
+    x, y = columna, fila
+    detenida = False
+    
+    while not detenida:
+        # Calcular nueva posición
+        nuevo_x, nuevo_y = x + dx, y + dy
+        x, y = nuevo_x, nuevo_y  # Actualizar posición actual
+        
+        # Verificar si estamos dentro de los límites
+        if y < 0 or y >= filas or x < 0 or x >= columnas:
+            print(f"⚡ Shockwave alcanzó el borde del tablero en ({x-dx},{y-dy})")
+            break
+        
+        # Verificar si hay una puerta en la dirección de avance desde la posición anterior
+        puerta_key = (y-dy, x-dx, direction)
+        door_positions = compute_door_positions(model.scenario["doors"])
+        
+        if puerta_key in door_positions:
+            # Verificar si la puerta está cerrada o abierta
+            if puerta_key in model.door_states:
+                puerta_estado = model.door_states[puerta_key]
+                if puerta_estado == "cerrada":
+                    # Si está cerrada, eliminarla y continuar
+                    del model.door_states[puerta_key]
+                    print(f"⚡ Shockwave destruyó una puerta cerrada entre ({x-dx},{y-dy}) y ({x},{y})")
+                    # Continuar la propagación (no detenerse)
+                else:
+                    # Si está abierta, atravesarla
+                    print(f"⚡ Shockwave atravesó una puerta abierta entre ({x-dx},{y-dy}) y ({x},{y})")
+                    # Continuar la propagación (no detenerse)
+            else:
+                # Si la puerta no está en door_states, ya estaba destruida
+                print(f"⚡ Shockwave atravesó una puerta destruida entre ({x-dx},{y-dy}) y ({x},{y})")
+                # Continuar la propagación (no detenerse)
+        else:
+            # Verificar si hay un muro en la dirección de avance desde la posición anterior
+            hay_muro = DirectionHelper.has_wall(model, y-dy, x-dx, direction)
+            
+            if hay_muro:
+                # Verificar si el muro ya tiene 2 daños (destruido)
+                muro_destruido = DirectionHelper.is_wall_destroyed(model, y-dy, x-dx, direction)
+                
+                if muro_destruido:
+                    # Si el muro está destruido, atravesarlo
+                    print(f"⚡ Shockwave atravesó un muro destruido entre ({x-dx},{y-dy}) y ({x},{y})")
+                    # Continuar la propagación (no detenerse)
+                else:
+                    # Si el muro no está destruido, dañarlo
+                    pared_key = DirectionHelper.get_wall_key(y-dy, x-dx, direction)
+                    DirectionHelper.damage_wall(model, y-dy, x-dx, direction)
+                    
+                    if pared_key in model.wall_damage:
+                        daño = model.wall_damage[pared_key]
+                    else:
+                        daño = 1
+                        
+                    if daño >= 2:
+                        print(f"⚡ Shockwave destruyó un muro entre ({x-dx},{y-dy}) y ({x},{y})")
+                        # Si se destruyó el muro, continuar la propagación
+                    else:
+                        print(f"⚡ Shockwave dañó un muro entre ({x-dx},{y-dy}) y ({x},{y}), daño total: {daño}")
+                        # Si sólo lo dañó pero no se destruyó, detenerse
+                        detenida = True
+                        break
+        
+        # Si llegamos aquí, es porque no había muro o puerta que detuviera la shockwave
+        # O porque atravesó un muro/puerta destruido/abierto
+        
+        # Verificar si estamos en el perímetro (donde no debe propagar efectos)
+        if DirectionHelper.is_perimeter(model, x, y):
+            print(f"⚡ Shockwave alcanzó el perímetro en ({x},{y})")
+            break
+        
+        # Verificar efectos en la celda actual
+        celda = model.grid_state[y, x]
+        
+        # Verificar si hay víctima en la celda
+        if celda["poi"] == "v":
+            celda["poi"] = None
+            model.victims_lost += 1
+            print(f"💀 Víctima en ({x},{y}) murió por la onda expansiva")
+            
+            # Actualizar POIs en el escenario
+            for i, poi in enumerate(model.scenario["pois"]):
+                if poi[0] == y and poi[1] == x:
+                    model.scenario["pois"].pop(i)
+                    break
+        
+        # Verificar el estado de la celda y aplicar efectos
+        if celda["fire"]:
+            # Si ya hay fuego, la shockwave continúa
+            print(f"⚡ Shockwave atraviesa celda con fuego en ({x},{y})")
+            # No detenerse, continuar propagación
+        elif celda["smoke"]:
+            # Si hay humo, convertir a fuego y detenerse
+            celda["smoke"] = False
+            celda["fire"] = True
+            if (y, x) not in model.scenario["fires"]:
+                model.scenario["fires"].append((y, x))
+            print(f"⚡ Shockwave convirtió humo en fuego en ({x},{y}) y se detuvo")
+            detenida = True
+        else:
+            # Si no hay fuego ni humo, colocar fuego y detenerse
+            celda["fire"] = True
+            if (y, x) not in model.scenario["fires"]:
+                model.scenario["fires"].append((y, x))
+            print(f"⚡ Shockwave provocó fuego en ({x},{y}) y se detuvo")
+            detenida = True
 
 
 def check_firefighters_in_fire(model):
@@ -976,6 +1091,8 @@ def check_firefighters_in_fire(model):
             ff.carrying = False
             model.victims_lost += 1
             print(f"💀 La víctima que llevaba el bombero {ff.unique_id} ha perecido en el incendio")
+            #Reponer POI cuando se pierde una víctima
+            replenish_pois(model)
         
         # Enviar bombero a zona de ambulancia en la esquina superior derecha
         # Primero, quitar el bombero de su posición actual
@@ -988,6 +1105,150 @@ def check_firefighters_in_fire(model):
         
         # Reducir los AP del bombero a 0 para simular que no puede hacer más acciones este turno
         ff.ap = 0
+
+def replenish_pois(model):
+    """Repone los POIs en el tablero para mantener siempre 3 POIs disponibles"""
+    # 1. Contar cuántos POIs hay actualmente en el tablero
+    num_pois_actual = len(model.scenario["pois"])
+    
+    print(f"\n=== REPOSICIÓN DE POIs ===")
+    print(f"POIs actuales en el tablero: {num_pois_actual}")
+    
+    # Si ya hay 3 o más POIs, no hacemos nada
+    if num_pois_actual >= 3:
+        print("Ya hay suficientes POIs en el tablero.")
+        return
+    
+    # 2. Determinar cuántos POIs necesitamos añadir
+    pois_a_aniadir = 3 - num_pois_actual
+    print(f"Se necesitan añadir {pois_a_aniadir} POIs")
+    
+    # 3. Inicializar el mazo de POIs si no existe
+    if not hasattr(model, "mazo_pois"):
+        # Contar cuántas víctimas y falsas alarmas hay ya en el escenario inicial
+        num_victimas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "v")
+        num_falsas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "f")
+        
+        # Crear el mazo con los POIs restantes (10 - X víctimas, 5 - Y falsas alarmas)
+        victimas_restantes = 10 - num_victimas_iniciales
+        falsas_restantes = 5 - num_falsas_iniciales
+        
+        # Asegurarse de que no haya números negativos
+        victimas_restantes = max(0, victimas_restantes)
+        falsas_restantes = max(0, falsas_restantes)
+        
+        # Crear el mazo inicial
+        model.mazo_pois = ["v"] * victimas_restantes + ["f"] * falsas_restantes
+        
+        # Barajar el mazo
+        model.random.shuffle(model.mazo_pois)
+        
+        print(f"Mazo de POIs inicializado con {victimas_restantes} víctimas y {falsas_restantes} falsas alarmas.")
+        print(f"Total en el mazo: {len(model.mazo_pois)} POIs")
+    
+    # 4. Para cada POI a añadir, seleccionar del mazo y colocarlo
+    for _ in range(pois_a_aniadir):
+        # Verificar si el mazo está vacío
+        if not model.mazo_pois:
+            print("El mazo de POIs está vacío. No se pueden añadir más POIs.")
+            break
+        
+        # Sacar un POI del mazo (tipo 'v' o 'f')
+        tipo_poi = model.mazo_pois.pop(0)
+        print(f"Sacando POI del mazo: {tipo_poi}. Quedan {len(model.mazo_pois)} en el mazo.")
+        
+        # Buscar una celda válida para colocar el POI
+        colocado = False
+        intentos = 0
+        max_intentos = 100  # Límite para evitar bucles infinitos
+        
+        while not colocado and intentos < max_intentos:
+            intentos += 1
+            
+            # Generar coordenadas aleatorias (fuera del perímetro)
+            filas, columnas = model.grid_state.shape
+            fila = model.random.randint(1, filas - 2)  # De 1 a filas-2
+            columna = model.random.randint(1, columnas - 2)  # De 1 a columnas-2
+            
+            # Verificar si la celda es válida (no tiene ya un POI)
+            if model.grid_state[fila, columna]["poi"] is None:
+                # Si hay fuego o humo, eliminarlo
+                if model.grid_state[fila, columna]["fire"]:
+                    model.grid_state[fila, columna]["fire"] = False
+                    # Eliminar de la lista de fuegos si estaba allí
+                    if (fila, columna) in model.scenario["fires"]:
+                        model.scenario["fires"].remove((fila, columna))
+                    print(f"Se eliminó fuego en ({columna},{fila}) para colocar un POI.")
+                
+                if model.grid_state[fila, columna]["smoke"]:
+                    model.grid_state[fila, columna]["smoke"] = False
+                    print(f"Se eliminó humo en ({columna},{fila}) para colocar un POI.")
+                
+                # Colocar el POI
+                model.grid_state[fila, columna]["poi"] = tipo_poi
+                model.scenario["pois"].append((fila, columna, tipo_poi))
+                
+                print(f"Nuevo POI tipo '{tipo_poi}' colocado en ({columna},{fila})")
+                
+                # Verificar si hay bomberos en la celda para revelar el POI inmediatamente
+                cell_contents = model.grid.get_cell_list_contents((columna, fila))
+                firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
+                
+                if firefighters:
+                    print(f"¡Un bombero ya está en esta celda! POI revelado inmediatamente.")
+                    if tipo_poi == "f":  # Falsa alarma
+                        model.grid_state[fila, columna]["poi"] = None
+                        model.scenario["pois"].remove((fila, columna, tipo_poi))
+                        print(f"Era una falsa alarma. POI removido.")
+                    else:  # Víctima
+                        print(f"Es una víctima. El bombero puede recogerla en su próximo turno.")
+                
+                colocado = True
+            
+            # Si no se pudo colocar, se intentará otra celda
+        
+        if not colocado:
+            print(f"No se pudo encontrar una celda válida para colocar el POI después de {max_intentos} intentos.")
+            # Devolver la carta al mazo y barajar
+            model.mazo_pois.append(tipo_poi)
+            model.random.shuffle(model.mazo_pois)
+    
+    print(f"Reposición de POIs completada. Total de POIs en el tablero: {len(model.scenario['pois'])}")
+    print(f"POIs restantes en el mazo: {len(model.mazo_pois)}")
+
+def check_end_conditions(model):
+    """
+    Verifica si se han cumplido las condiciones de victoria o derrota
+    
+    Returns:
+        bool: True si el juego ha terminado, False si continúa
+    """
+    # 1. Verificar condición de victoria (7+ víctimas rescatadas)
+    if model.victims_rescued >= 7:
+        print("\n🎖️🎖️🎖️ ¡VICTORIA! 🎖️🎖️🎖️")
+        print(f"El equipo de bomberos ha rescatado {model.victims_rescued} víctimas.")
+        print("La operación de rescate ha sido un éxito rotundo.")
+        model.simulation_over = True
+        return True
+        
+    # 2. Verificar derrota por víctimas perdidas (4+ víctimas)
+    elif model.victims_lost >= 4:
+        print("\n💀💀💀 DERROTA: Demasiadas víctimas perdidas 💀💀💀")
+        print(f"Se han perdido {model.victims_lost} víctimas en el incendio.")
+        print("La operación de rescate ha fracasado.")
+        model.simulation_over = True
+        return True
+        
+    # 3. Verificar derrota por colapso estructural (24+ daños)
+    elif model.damage_counters >= 24:
+        print("\n🏚️🏚️🏚️ DERROTA: Colapso estructural 🏚️🏚️🏚️")
+        print(f"El edificio ha acumulado {model.damage_counters} puntos de daño y se ha derrumbado.")
+        print("Todos los bomberos y víctimas restantes han quedado atrapados.")
+        model.simulation_over = True
+        return True
+        
+    # Si no se cumple ninguna condición, el juego continúa
+    return False
 
 def visualizar_simulacion(model):
     """Visualiza el estado actual de la simulación, incluyendo bomberos"""
@@ -1143,14 +1404,13 @@ class FirefighterAgent(Agent):
             self.entrada_asignada = None  # Ya entramos, no necesitamos recordar la entrada
             return  # Salimos porque usar la entrada consume el turno
         
-        # ===== NUEVA SECCIÓN: MENÚ DE ACCIONES =====
         # Mientras tenga puntos de acción, permitir realizar acciones
         while self.ap > 0:
             # Obtener posición actual
             x, y = self.pos  # Mesa usa (x=columna, y=fila)
             celda_actual = self.model.grid_state[y, x]
             
-            # VERIFICACIÓN 1: POI en celda actual (como antes)
+            # VERIFICACIÓN 1: POI en celda actual
             if celda_actual["poi"] is not None:
                 if celda_actual["poi"] == "v" and not self.carrying:
                     # Es una víctima y no estamos cargando ya a otra
@@ -1172,8 +1432,7 @@ class FirefighterAgent(Agent):
                     print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Ha rescatado a la víctima en {self.pos}")
                     self.carrying = False
                     return  # El rescate consume el turno
-            
-            # NUEVO: DECISIÓN DE ACCIÓN (para este ejemplo, decisiones aleatorias)
+        
             # En un juego real se permitiría al usuario elegir qué acción realizar
             acciones_posibles = []
             
@@ -1256,10 +1515,16 @@ class FirefighterAgent(Agent):
                         acciones_posibles.append(f"cortar_{i}")
             
             # 5. Siempre puede pasar turno
-            acciones_posibles.append("pasar")
+            # Verificar si está en la posición de la ambulancia
+            es_ambulancia = (x == 9 and y == 0)
             
+            # Si no hay acciones posibles O
+            # tiene 4 o menos AP (para optimizar) O 
+            # está en la ambulancia
+            if (len(acciones_posibles) == 0) or (self.ap <= 4) or es_ambulancia:
+                acciones_posibles.append("pasar")
+                
             # Elegir acción aleatoriamente (para simulación)
-            # En un juego real, esta elección vendría del usuario
             accion = self.model.random.choice(acciones_posibles)
             
             # Ejecutar la acción elegida
@@ -1312,12 +1577,6 @@ class FirefighterAgent(Agent):
         # Obtener posición actual
         x, y = self.pos
         
-        # Información de depuración
-        if self.carrying:
-            print(f"[Debug] Bombero {self.unique_id} está cargando una víctima en ({x},{y})")
-            entradas = [(e[1], e[0]) for e in self.model.scenario["entries"]]
-            print(f"[Debug] Entradas disponibles: {entradas}")
-        
         # Lista de movimientos posibles
         movimientos = []
         
@@ -1339,18 +1598,31 @@ class FirefighterAgent(Agent):
                     # Verificar si es entrada
                     es_entrada = DirectionHelper.is_entry(self.model, nx, ny)
                     
+                    # CORRECCIÓN: Calcular el costo de AP para este movimiento
+                    costo_ap = 1  # Por defecto, moverse cuesta 1 AP
+                    
+                    # CORREGIDO: Si la celda destino tiene FUEGO (no humo), cuesta 2 AP
+                    if celda_destino["fire"]:
+                        costo_ap = 2
+                    
+                    # Si estoy cargando una víctima, cuesta 2 AP
+                    if self.carrying:
+                        costo_ap = 2
+                    
                     # No ir a celdas con fuego si carga víctima
                     puede_ir = True
                     if self.carrying and celda_destino["fire"]:
                         puede_ir = False
                     
+                    # Verificar si tengo suficientes AP para este movimiento
+                    if self.ap < costo_ap:
+                        puede_ir = False
+                    
                     # Añadir movimiento válido
                     if puede_ir and (not es_perimetro or (self.carrying and es_entrada)):
-                        movimientos.append((nx, ny))
-                        if self.carrying and es_entrada:
-                            print(f"[Debug] Añadido movimiento hacia entrada: {(nx, ny)}")
+                        # Guardar tanto la posición como su costo de AP
+                        movimientos.append((nx, ny, costo_ap))
         
-        # El resto del método permanece igual...
         # Si no hay movimientos válidos, terminar el turno
         if not movimientos:
             print(f"[Bombero {self.unique_id}] ACCIÓN: No puede moverse desde {self.pos}, AP restante: {self.ap}")
@@ -1362,24 +1634,30 @@ class FirefighterAgent(Agent):
             return False
         
         # Elegir una dirección aleatoria
-        nueva_pos = self.model.random.choice(movimientos)
+        nueva_pos_info = self.model.random.choice(movimientos)
+        nueva_pos = (nueva_pos_info[0], nueva_pos_info[1])  # Extraer solo las coordenadas x,y
+        costo_ap = nueva_pos_info[2]  # Extraer el costo AP por separado
         
         # Verificar si es un movimiento hacia una entrada cargando víctima
         es_entrada = nueva_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
         es_perimetro = nueva_pos[0] == 0 or nueva_pos[0] == self.model.grid.width - 1 or \
                     nueva_pos[1] == 0 or nueva_pos[1] == self.model.grid.height - 1
         
-        # Mover al agente
+        # Mover al agente con solo las coordenadas x,y
         self.model.grid.move_agent(self, nueva_pos)
         
-        # Restar punto de acción
-        self.ap -= 1
+        # NUEVO: Restar el costo de AP correspondiente
+        self.ap -= costo_ap
         
         # Generar mensaje según el tipo de movimiento
         if self.carrying and es_entrada and es_perimetro:
             print(f"[Bombero {self.unique_id}] ACCIÓN: ¡RESCATE COMPLETADO! Salió por la entrada {nueva_pos} con la víctima. AP restante: {self.ap}")
             self.carrying = False  # Ya no carga a la víctima
-            self.model.victims_rescued += 1  # NUEVO: Incrementar contador de víctimas rescatadas
+            self.model.victims_rescued += 1  # Incrementar contador de víctimas rescatadas
+            
+            # Nuevo: Llamar a replenish_pois para reponer inmediatamente
+            replenish_pois(self.model)
+            
             return True
         else:
             print(f"[Bombero {self.unique_id}] ACCIÓN: Se movió a {nueva_pos}. AP restante: {self.ap}")
@@ -1390,15 +1668,36 @@ class FirefighterAgent(Agent):
             
             # Si hay un POI en la nueva celda
             if celda_nueva["poi"] is not None:
-                if celda_nueva["poi"] == "v" and not self.carrying:
+                # Guardar el tipo de POI antes de eliminarlo
+                tipo_poi = celda_nueva["poi"]
+                
+                if tipo_poi == "v" and not self.carrying:
                     # Es una víctima y no estamos cargando ya a otra
                     self.carrying = True
                     celda_nueva["poi"] = None  # Eliminar el POI de la celda
+                    
+                    # Eliminar el POI de la lista de POIs del escenario
+                    for i, poi in enumerate(self.model.scenario["pois"]):
+                        if poi[0] == nueva_y and poi[1] == nueva_x:
+                            self.model.scenario["pois"].pop(i)
+                            break
+                    
                     print(f"[Bombero {self.unique_id}] ACCIÓN: Recogió víctima en ({nueva_x},{nueva_y})")
-                elif celda_nueva["poi"] == "f":
+                
+                elif tipo_poi == "f":
                     # Es una falsa alarma
                     celda_nueva["poi"] = None  # Eliminar el POI de la celda
+                    
+                    # Eliminar el POI de la lista de POIs del escenario
+                    for i, poi in enumerate(self.model.scenario["pois"]):
+                        if poi[0] == nueva_y and poi[1] == nueva_x:
+                            self.model.scenario["pois"].pop(i)
+                            break
+                    
                     print(f"[Bombero {self.unique_id}] ACCIÓN: Encontró una falsa alarma en ({nueva_x},{nueva_y})")
+                    
+                    # Nuevo: Reponer POI tras descubrir falsa alarma
+                    replenish_pois(self.model)
             
             return True
 
@@ -1421,7 +1720,7 @@ class FireRescueModel(Model):
         # NUEVO: Registros para nuevas mecánicas
         self.door_states = {}  # Diccionario para estado de puertas (abiertas/cerradas)
         
-        # AÑADIR: Inicializar todas las puertas como cerradas
+        #  Inicializar todas las puertas como cerradas
         door_positions = compute_door_positions(scenario["doors"])
         for door_pos in door_positions:
             self.door_states[door_pos] = "cerrada"
@@ -1432,6 +1731,9 @@ class FireRescueModel(Model):
         self.victims_lost = 0      # Víctimas perdidas por el fuego
         self.victims_rescued = 0   # Víctimas rescatadas por bomberos
         self.damage_counters = 0   # Total de marcadores de daño colocados
+        
+        # NUEVO: Variable de control para fin de simulación
+        self.simulation_over = False
         
         # Colocar bomberos fuera del tablero, junto a las entradas
         self.create_agents()
@@ -1506,18 +1808,25 @@ class FireRescueModel(Model):
     
     def step(self):
         """Avanzar la simulación un paso"""
+        # Verificar si la simulación ya ha terminado
+        if self.simulation_over:
+            print("La simulación ha terminado. No se pueden ejecutar más pasos.")
+            return
+                
         self.step_count += 1
         
+        # PRIMERO: Mostrar información sobre el paso actual
         if self.stage == 0:
             print(f"\n--- Paso {self.step_count}: Bomberos entrando al tablero ---")
             self.stage = 1
             # Los bomberos se moverán a sus entradas en este paso
         else:
             print(f"\n--- Paso {self.step_count} ---")
-            
-        # Ejecutar paso de cada agente
+                    
+        # SEGUNDO: Ejecutar paso de cada agente
         self.schedule.step()
         
+        # TERCERO: Ejecutar la lógica del juego
         # Propagar el fuego después de que los agentes hayan actuado
         print("\n=== PROPAGACIÓN DEL FUEGO ===")
         advance_fire(self)
@@ -1526,16 +1835,37 @@ class FireRescueModel(Model):
         print("\n=== VERIFICACIÓN DE BOMBEROS EN FUEGO ===")
         check_firefighters_in_fire(self)
         
-        # Restaurar AP de todos los bomberos al final del turno (MODIFICADO)
-        for agent in self.schedule.agents:
-            # NUEVO: Acumular AP sin sobrepasar el máximo
-            agent.ap = min(agent.ap + 4, agent.max_ap)  # Restaurar AP y acumular hasta max_ap
+        # Reponer POIs al final del turno
+        replenish_pois(self)
         
-        # Imprimir resumen del turno
+        # Restaurar AP de todos los bomberos al final del turno
+        for agent in self.schedule.agents:
+            # Acumular AP sin sobrepasar el máximo
+            agent.ap = min(agent.ap + 4, agent.max_ap)
+        
+        # Verificar condiciones de fin de juego
+        check_end_conditions(self)
+        
+        # CUARTO: Imprimir resumen del turno
         print("\n==== Fin del turno ====")
         print(f"Víctimas rescatadas: {self.victims_rescued}")
         print(f"Víctimas perdidas: {self.victims_lost}")
         print(f"Daños acumulados en paredes: {self.damage_counters}")
+        print(f"POIs en el tablero: {len(self.scenario['pois'])}")
+        
+        # QUINTO: Al final, mostrar UNA SOLA visualización del estado actual
+        print("\n=== ESTADO ACTUALIZADO DE LA SIMULACIÓN ===")
+        plt.figure(figsize=(12, 10))
+        visualizar_grid_con_perimetro_y_puertas(
+            self.scenario["grid_walls"], 
+            compute_door_positions(self.scenario["doors"]), 
+            self.scenario["entries"],
+            self.scenario["fires"],   
+            self.scenario["pois"],
+            self
+        )
+        plt.show()
+    
 
 
 # Parsear el escenario completo
@@ -1574,18 +1904,32 @@ print("\n=== INICIANDO SIMULACIÓN ===")
 # Inicializar el modelo con nuestro escenario
 model = FireRescueModel(scenario)
 
-# Ejecutar dos pasos de simulación para verificar funcionamiento
+# Mostrar estado inicial solo una vez
 print("\n=== SIMULACIÓN EN PROGRESO ===")
 print("\n--- Estado inicial ---")
-visualizar_simulacion(model)  # Visualizar estado inicial (paso 0)
 
-# Número de pasos a simular (cambia este valor para más o menos pasos)
-num_pasos = 10
+# Solo mostrar la visualización inicial
+plt.figure(figsize=(12, 10))
+visualizar_grid_con_perimetro_y_puertas(
+    scenario["grid_walls"], 
+    door_positions, 
+    scenario["entries"],
+    scenario["fires"],   
+    scenario["pois"],
+    model
+)
+plt.title("Estado inicial")
+plt.tight_layout()
+plt.show()
 
-# Ejecutar la simulación para los pasos especificados
-for i in range(num_pasos):
-    model.step()  # Ejecutar paso
-    print(f"\n--- Paso {i+1} ---")
-    visualizar_simulacion(model)  # Visualizar después de cada paso
+# Simulación continua hasta que termine por victoria o derrota
+paso = 1
+while not model.simulation_over:
+    model.step()  # Ejecutar paso (incluye visualización al final)
+    paso += 1
 
 print("\n=== SIMULACIÓN FINALIZADA ===")
+print(f"Total de pasos ejecutados: {paso-1}")
+print(f"Víctimas rescatadas: {model.victims_rescued}")
+print(f"Víctimas perdidas: {model.victims_lost}")
+print(f"Daños en muros acumulados: {model.damage_counters}")
