@@ -38,7 +38,192 @@ scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
 4 8
 6 3"""
 
+class ScenarioParser:
+    @staticmethod
+    def _parse_grid_walls(lines):
+        """Parsea las 6 primeras líneas del escenario para obtener los muros"""
+        original_grid = np.zeros((6, 8, 4), dtype=int)
+        for i, line in enumerate(lines[:6]):
+            for j, cell in enumerate(line.strip().split()):
+                original_grid[i, j] = [int(d) for d in cell]
+        
+        # Crear grid extendido con perímetro (8, 10, 4)
+        grid = np.zeros((8, 10, 4), dtype=int)
+
+        # Copiar escenario original en centro (1:7, 1:9)
+        grid[1:7, 1:9] = original_grid
+
+        # Agregar muros en el perímetro externo
+        grid[0, 1:9, 0] = 1  # Norte
+        grid[7, 1:9, 2] = 1  # Sur
+        grid[1:7, 0, 3] = 1  # Oeste
+        grid[1:7, 9, 1] = 1  # Este
+        
+        print("Muros parseados correctamente.")
+        return grid
+
+    @staticmethod
+    def _parse_pois(lines):
+        """Parsea las líneas de Puntos de Interés (POI)"""
+        pois = []
+        poi_lines = lines[6:9]  # 3 líneas después de los muros
+        
+        for line in poi_lines:
+            parts = line.strip().split()
+            if len(parts) == 3:
+                row, col, poi_type = parts
+                # Convertir a coordenadas 0-based y considerar perímetro (+1)
+                row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+                pois.append((row_idx, col_idx, poi_type))
+        
+        print(f"POIs parseados: {pois}")
+        return pois
+
+    @staticmethod
+    def _parse_fires(lines):
+        """Parsea las líneas de fuego inicial"""
+        fires = []
+        fire_lines = lines[9:19]  # 10 líneas después de los POIs
+        
+        for line in fire_lines:
+            parts = line.strip().split()
+            if len(parts) == 2:
+                row, col = parts
+                # Convertir a coordenadas 0-based y considerar perímetro (+1)
+                row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+                fires.append((row_idx, col_idx))
+        
+        print(f"Fuegos iniciales parseados: {fires}")
+        return fires
+
+    @staticmethod
+    def _parse_doors(lines):
+        """Parsea las líneas de puertas"""
+        doors = []
+        door_lines = lines[19:27]  # 8 líneas después de los fuegos
+        
+        for line in door_lines:
+            parts = line.strip().split()
+            if len(parts) == 4:
+                r1, c1, r2, c2 = parts
+                # Convertir a coordenadas 0-based y considerar perímetro (+1)
+                r1_idx, c1_idx = int(r1) - 1 + 1, int(c1) - 1 + 1
+                r2_idx, c2_idx = int(r2) - 1 + 1, int(c2) - 1 + 1
+                doors.append(((r1_idx, c1_idx), (r2_idx, c2_idx)))
+        
+        print(f"Puertas parseadas: {doors}")
+        return doors
+
+    @staticmethod
+    def _parse_entries(lines):
+        """Parsea las líneas de entradas de bomberos"""
+        entries = []
+        entry_lines = lines[27:31]  # 4 líneas después de las puertas
+        
+        for line in entry_lines:
+            parts = line.strip().split()
+            if len(parts) == 2:
+                row, col = parts
+                # Convertir a coordenadas 0-based y considerar perímetro (+1)
+                row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
+                entries.append((row_idx, col_idx))
+        
+        print(f"Entradas parseadas: {entries}")
+        return entries
+
+    @staticmethod
+    def parse_scenario(scenario_text):
+        """Función principal que parsea todo el contenido del escenario"""
+        lines = scenario_text.strip().split('\n')
+        
+        # Validar que haya suficientes líneas
+        if len(lines) < 31:
+            print(f"Error: El escenario debe tener al menos 31 líneas, tiene {len(lines)}")
+            return None
+        
+        # Parsear cada componente
+        grid = ScenarioParser._parse_grid_walls(lines)
+        pois = ScenarioParser._parse_pois(lines)
+        fires = ScenarioParser._parse_fires(lines)
+        doors = ScenarioParser._parse_doors(lines)
+        entries = ScenarioParser._parse_entries(lines)
+        
+        # Crear diccionario de escenario
+        scenario = {
+            "grid_walls": grid,
+            "pois": pois,
+            "fires": fires,
+            "doors": doors,
+            "entries": entries
+        }
+        
+        print("Escenario parseado completamente.")
+        return scenario
+    
+    def compute_door_positions(doors):
+        """Calcula las posiciones de las puertas para la visualización"""
+        door_positions = []
+        for (r1, c1), (r2, c2) in doors:
+            # Determinar en qué dirección está la puerta
+            if r1 == r2:  # Puerta horizontal (este-oeste)
+                if c1 < c2:  # c1 está a la izquierda de c2
+                    door_positions.append((r1, c1, 1))  # Puerta en el este de celda 1
+                else:
+                    door_positions.append((r1, c2, 1))  # Puerta en el este de celda 2
+            else:  # Puerta vertical (norte-sur)
+                if r1 < r2:  # r1 está arriba de r2
+                    door_positions.append((r1, c1, 2))  # Puerta en el sur de celda 1
+                else:
+                    door_positions.append((r2, c2, 2))  # Puerta en el sur de celda 2
+        
+        return door_positions
+
+    def build_grid_state(scenario):
+        """Construye una matriz de celdas donde cada celda es un diccionario con estado completo"""
+        filas, columnas = scenario["grid_walls"].shape[:2]
+        
+        # Crear matriz vacía
+        grid_state = np.empty((filas, columnas), dtype=object)
+        
+        # Calcular posiciones de puertas para identificar celdas con puertas
+        door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
+        
+        # Inicializar cada celda
+        for y in range(filas):
+            for x in range(columnas):
+                # Obtener información de muros
+                walls = scenario["grid_walls"][y, x].tolist()
+                
+                # Verificar si hay fuego
+                fire = (y, x) in scenario["fires"]
+                
+                # Verificar si hay puerta en alguna dirección
+                door = any((y, x, d) in door_positions for d in range(4))
+                
+                # Verificar si hay POI y de qué tipo
+                poi = None
+                for p_y, p_x, p_type in scenario["pois"]:
+                    if p_y == y and p_x == x:
+                        poi = p_type
+                        break
+                
+                # Crear diccionario de celda
+                cell = {
+                    "walls": walls,
+                    "fire": fire,
+                    "smoke": False,
+                    "damage": 0,
+                    "door": door,
+                    "poi": poi
+                }
+                
+                # Asignar a la matriz
+                grid_state[y, x] = cell
+        
+        return grid_state
+
     # Clase auxiliar para manejo de direcciones, muros y puertas
+
 class DirectionHelper:
     # Constantes para las direcciones
     NORTH = 0
@@ -57,6 +242,8 @@ class DirectionHelper:
     # Nombres de las direcciones para mensajes
     DIRECTION_NAMES = ["norte", "este", "sur", "oeste"]
     
+    #Usamos un método estático porque no requiere estado de instancia
+    #tampoco es necesario utilizar self, ya que no hay atributos de instancia
     @staticmethod
     def get_adjacent_position(x, y, direction):
         """Obtiene la posición adyacente en la dirección especificada"""
@@ -98,7 +285,7 @@ class DirectionHelper:
     @staticmethod
     def is_door(model, y, x, direction):
         """Verifica si hay una puerta en la dirección especificada"""
-        door_positions = compute_door_positions(model.scenario["doors"])
+        door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
         door_key = (y, x, direction)
         return door_key in door_positions
     
@@ -107,7 +294,7 @@ class DirectionHelper:
         """Obtiene el estado de una puerta (abierta/cerrada/destruida)"""
         door_key = (y, x, direction)
         
-        if door_key not in compute_door_positions(model.scenario["doors"]):
+        if door_key not in ScenarioParser.compute_door_positions(model.scenario["doors"]):
             return None  # No es una puerta
         
         if door_key in model.door_states:
@@ -150,754 +337,358 @@ class DirectionHelper:
         
         return False  # Muro dañado pero no destruido
 
-
-def parse_grid_walls(lines):
-    """Parsea las 6 primeras líneas del escenario para obtener los muros"""
-    original_grid = np.zeros((6, 8, 4), dtype=int)
-    for i, line in enumerate(lines[:6]):
-        for j, cell in enumerate(line.strip().split()):
-            original_grid[i, j] = [int(d) for d in cell]
-    
-    # Crear grid extendido con perímetro (8, 10, 4)
-    grid = np.zeros((8, 10, 4), dtype=int)
-
-    # Copiar escenario original en centro (1:7, 1:9)
-    grid[1:7, 1:9] = original_grid
-
-    # Agregar muros en el perímetro externo
-    grid[0, 1:9, 0] = 1  # Norte
-    grid[7, 1:9, 2] = 1  # Sur
-    grid[1:7, 0, 3] = 1  # Oeste
-    grid[1:7, 9, 1] = 1  # Este
-    
-    print("Muros parseados correctamente.")
-    return grid
-
-def parse_pois(lines):
-    """Parsea las líneas de Puntos de Interés (POI)"""
-    pois = []
-    poi_lines = lines[6:9]  # 3 líneas después de los muros
-    
-    for line in poi_lines:
-        parts = line.strip().split()
-        if len(parts) == 3:
-            row, col, poi_type = parts
-            # Convertir a coordenadas 0-based y considerar perímetro (+1)
-            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
-            pois.append((row_idx, col_idx, poi_type))
-    
-    print(f"POIs parseados: {pois}")
-    return pois
-
-def parse_fires(lines):
-    """Parsea las líneas de fuego inicial"""
-    fires = []
-    fire_lines = lines[9:19]  # 10 líneas después de los POIs
-    
-    for line in fire_lines:
-        parts = line.strip().split()
-        if len(parts) == 2:
-            row, col = parts
-            # Convertir a coordenadas 0-based y considerar perímetro (+1)
-            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
-            fires.append((row_idx, col_idx))
-    
-    print(f"Fuegos iniciales parseados: {fires}")
-    return fires
-
-def parse_doors(lines):
-    """Parsea las líneas de puertas"""
-    doors = []
-    door_lines = lines[19:27]  # 8 líneas después de los fuegos
-    
-    for line in door_lines:
-        parts = line.strip().split()
-        if len(parts) == 4:
-            r1, c1, r2, c2 = parts
-            # Convertir a coordenadas 0-based y considerar perímetro (+1)
-            r1_idx, c1_idx = int(r1) - 1 + 1, int(c1) - 1 + 1
-            r2_idx, c2_idx = int(r2) - 1 + 1, int(c2) - 1 + 1
-            doors.append(((r1_idx, c1_idx), (r2_idx, c2_idx)))
-    
-    print(f"Puertas parseadas: {doors}")
-    return doors
-
-def parse_entries(lines):
-    """Parsea las líneas de entradas de bomberos"""
-    entries = []
-    entry_lines = lines[27:31]  # 4 líneas después de las puertas
-    
-    for line in entry_lines:
-        parts = line.strip().split()
-        if len(parts) == 2:
-            row, col = parts
-            # Convertir a coordenadas 0-based y considerar perímetro (+1)
-            row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
-            entries.append((row_idx, col_idx))
-    
-    print(f"Entradas parseadas: {entries}")
-    return entries
-
-def parse_scenario(scenario_text):
-    """Función principal que parsea todo el contenido del escenario"""
-    lines = scenario_text.strip().split('\n')
-    
-    # Validar que haya suficientes líneas
-    if len(lines) < 31:
-        print(f"Error: El escenario debe tener al menos 31 líneas, tiene {len(lines)}")
-        return None
-    
-    # Parsear cada componente
-    grid = parse_grid_walls(lines)
-    pois = parse_pois(lines)
-    fires = parse_fires(lines)
-    doors = parse_doors(lines)
-    entries = parse_entries(lines)
-    
-    # Crear diccionario de escenario
-    scenario = {
-        "grid_walls": grid,
-        "pois": pois,
-        "fires": fires,
-        "doors": doors,
-        "entries": entries
-    }
-    
-    print("Escenario parseado completamente.")
-    return scenario
-
-def compute_door_positions(doors):
-    """Calcula las posiciones de las puertas para la visualización"""
-    door_positions = []
-    for (r1, c1), (r2, c2) in doors:
-        # Determinar en qué dirección está la puerta
-        if r1 == r2:  # Puerta horizontal (este-oeste)
-            if c1 < c2:  # c1 está a la izquierda de c2
-                door_positions.append((r1, c1, 1))  # Puerta en el este de celda 1
-            else:
-                door_positions.append((r1, c2, 1))  # Puerta en el este de celda 2
-        else:  # Puerta vertical (norte-sur)
-            if r1 < r2:  # r1 está arriba de r2
-                door_positions.append((r1, c1, 2))  # Puerta en el sur de celda 1
-            else:
-                door_positions.append((r2, c2, 2))  # Puerta en el sur de celda 2
-    
-    return door_positions
-
-def build_grid_state(scenario):
-    """Construye una matriz de celdas donde cada celda es un diccionario con estado completo"""
-    filas, columnas = scenario["grid_walls"].shape[:2]
-    
-    # Crear matriz vacía
-    grid_state = np.empty((filas, columnas), dtype=object)
-    
-    # Calcular posiciones de puertas para identificar celdas con puertas
-    door_positions = compute_door_positions(scenario["doors"])
-    
-    # Inicializar cada celda
-    for y in range(filas):
-        for x in range(columnas):
-            # Obtener información de muros
-            walls = scenario["grid_walls"][y, x].tolist()
+class GameMechanics:
+    @staticmethod
+    def advance_fire(model):
+        """Propaga el fuego a través del escenario según las reglas del juego Flash Point: Fire Rescue"""
+        filas, columnas = model.grid_state.shape
+        
+        # Inicializar contadores si no existen
+        if not hasattr(model, 'victims_lost'):
+            model.victims_lost = 0
+        if not hasattr(model, 'damage_counters'):
+            model.damage_counters = 0
+        
+        # 1. SIMULAR TIRADA DE DADOS PARA AGREGAR FUEGO ALEATORIO
+        # Generar coordenadas aleatorias válidas (no en el perímetro)
+        fila_aleatoria = model.random.randint(1, filas-2)
+        columna_aleatoria = model.random.randint(1, columnas-2)
+        
+        # Verificar el estado de la celda aleatoria
+        celda = model.grid_state[fila_aleatoria, columna_aleatoria]
+        
+        print(f"🎲 Tirada de dados: Punto de ignición en ({columna_aleatoria},{fila_aleatoria})")
+        
+        # Caso 1: Celda sin fuego ni humo -> Agregar HUMO (no fuego)
+        if not celda["fire"] and not celda["smoke"]:
+            celda["smoke"] = True  # Colocar humo en lugar de fuego
+            print(f"💨 Humo añadido en ({columna_aleatoria},{fila_aleatoria})")
+        
+        # Caso 2: Celda con humo -> Convertir a fuego
+        elif not celda["fire"] and celda["smoke"]:
+            celda["fire"] = True
+            celda["smoke"] = False
+            if (fila_aleatoria, columna_aleatoria) not in model.scenario["fires"]:
+                model.scenario["fires"].append((fila_aleatoria, columna_aleatoria))
+            print(f"🔥 Fuego se propaga a ({columna_aleatoria},{fila_aleatoria}): había humo → ahora es fuego.")
             
-            # Verificar si hay fuego
-            fire = (y, x) in scenario["fires"]
-            
-            # Verificar si hay puerta en alguna dirección
-            door = any((y, x, d) in door_positions for d in range(4))
-            
-            # Verificar si hay POI y de qué tipo
-            poi = None
-            for p_y, p_x, p_type in scenario["pois"]:
-                if p_y == y and p_x == x:
-                    poi = p_type
-                    break
-            
-            # Crear diccionario de celda
-            cell = {
-                "walls": walls,
-                "fire": fire,
-                "smoke": False,
-                "damage": 0,
-                "door": door,
-                "poi": poi
-            }
-            
-            # Asignar a la matriz
-            grid_state[y, x] = cell
-    
-    return grid_state
-
-def print_cell_info(grid_state, y, x):
-    """Imprime información detallada de una celda para verificación"""
-    cell = grid_state[y, x]
-    print(f"Celda ({y}, {x}):")
-    print(f"  Muros (NESO): {cell['walls']}")
-    print(f"  Fuego: {cell['fire']}")
-    print(f"  Humo: {cell['smoke']}")
-    print(f"  Daño: {cell['damage']}")
-    print(f"  Puerta: {cell['door']}")
-    print(f"  POI: {cell['poi']}")
-    print()
-
-def verify_grid_state(grid_state):
-    """Verifica que algunas celdas estén correctamente inicializadas"""
-    filas, columnas = grid_state.shape
-    
-    # Verificar las esquinas
-    print("=== ESQUINAS ===")
-    print_cell_info(grid_state, 0, 0)             # Esquina superior izquierda
-    print_cell_info(grid_state, 0, columnas-1)    # Esquina superior derecha
-    print_cell_info(grid_state, filas-1, 0)       # Esquina inferior izquierda
-    print_cell_info(grid_state, filas-1, columnas-1)  # Esquina inferior derecha
-    
-    # Verificar algunas celdas con características especiales
-    print("=== CELDAS INTERIORES ===")
-    
-    # Buscar una celda con fuego
-    for y in range(filas):
-        for x in range(columnas):
-            if grid_state[y, x]["fire"]:
-                print("Celda con FUEGO:")
-                print_cell_info(grid_state, y, x)
-                break
-    
-    # Buscar una celda con puerta
-    for y in range(filas):
-        for x in range(columnas):
-            if grid_state[y, x]["door"]:
-                print("Celda con PUERTA:")
-                print_cell_info(grid_state, y, x)
-                break
-    
-    # Buscar una celda con POI
-    for y in range(filas):
-        for x in range(columnas):
-            if grid_state[y, x]["poi"] is not None:
-                print(f"Celda con POI (tipo {grid_state[y, x]['poi']}):")
-                print_cell_info(grid_state, y, x)
-                break
-
-# Función de visualización 
-def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires=None, pois=None, model=None):
-    filas, columnas = grid.shape[:2]
-    fig, ax = plt.subplots(figsize=(12, 10))
-    ax.set_facecolor('#d9f2d9')  # Fondo verde claro
-
-    # Determinar la dirección de cada entrada (hacia el borde más cercano)
-    entry_positions = []
-    for y, x in entries:
-        # Determinar qué borde está más cerca
-        dist_norte = y
-        dist_sur = filas - 1 - y
-        dist_oeste = x
-        dist_este = columnas - 1 - x
-        
-        # La dirección con la distancia mínima es la más cercana al borde
-        min_dist = min(dist_norte, dist_sur, dist_oeste, dist_este)
-        
-        if min_dist == dist_norte:
-            entry_positions.append((y, x, 0))  # Norte
-        elif min_dist == dist_este:
-            entry_positions.append((y, x, 1))  # Este
-        elif min_dist == dist_sur:
-            entry_positions.append((y, x, 2))  # Sur
-        else:  # min_dist == dist_oeste
-            entry_positions.append((y, x, 3))  # Oeste
-
-    for y in range(filas):
-        for x in range(columnas):
-            # Verificar si hay fuego o humo en esta celda
-            is_fire = (y, x) in fires if fires else False
-            is_smoke = False
-            
-            if model is not None:
-                # Usar grid_state para detectar humo
-                is_smoke = model.grid_state[y, x]["smoke"]
-            
-            # Determinar el color de fondo según la celda
-            if is_fire:
-                color = '#ffcccc'  # Color rojizo claro para fuego
-            elif is_smoke:
-                color = '#e6e6e6'  # Color gris claro para humo
-            elif x == 0 or x == columnas-1 or y == 0 or y == filas-1:
-                color = '#b3e6b3'  # Color verde claro para perímetro
-            else:
-                color = '#e6f7ff'  # Color azul claro para celdas jugables
-                
-            rect = patches.Rectangle((x, filas - y - 1), 1, 1, linewidth=0, facecolor=color)
-            ax.add_patch(rect)
-
-            # Dibujar líneas de cuadrícula claras
-            ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color='gray', linewidth=0.3)
-            ax.plot([x, x+1], [filas - y, filas - y], color='gray', linewidth=0.3)
-            ax.plot([x, x], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
-            ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
-
-            # Dibujar símbolos para fuego si corresponde
-            if is_fire:
-                ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=15, 
-                        markerfacecolor='#ff6600', markeredgecolor='red', alpha=0.7)
-                ax.plot(x + 0.5, filas - y - 0.5, '*', markersize=10, 
-                        markerfacecolor='yellow', markeredgecolor='yellow')
-            
-            # Dibujar símbolos para humo si corresponde
-            elif is_smoke:
-                ax.plot(x + 0.5, filas - y - 0.5, 's', markersize=14, 
-                        markerfacecolor='#a6a6a6', markeredgecolor='#808080', alpha=0.6)
-                ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=8, 
-                        markerfacecolor='#d3d3d3', markeredgecolor='#d3d3d3', alpha=0.8)
-
-            # Verificar si hay un POI en esta posición
-            if pois:
-                for poi_y, poi_x, poi_type in pois:
-                    if poi_y == y and poi_x == x:
-                        if poi_type == 'v':  # Víctima
-                            ax.plot(x + 0.5, filas - y - 0.5, 'D', markersize=12, 
-                                    markerfacecolor='#00cc66', markeredgecolor='black', zorder=10)
-                        elif poi_type == 'f':  # Falsa alarma
-                            ax.plot(x + 0.5, filas - y - 0.5, 'X', markersize=12, 
-                                    markerfacecolor='#cccccc', markeredgecolor='black', zorder=10)
-                            
-            # Determinar si es una celda de perímetro
-            es_perimetro = (x == 0 or x == columnas-1 or y == 0 or y == filas-1)
-
-            if es_perimetro:
-                # Solo dibujamos los muros del perímetro exterior
-                if y == 0:
-                    ax.plot([x, x+1], [filas - y, filas - y], color='black', linewidth=2.5)
-                if y == filas-1:
-                    ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color='black', linewidth=2.5)
-                if x == 0:
-                    ax.plot([x, x], [filas - y - 1, filas - y], color='black', linewidth=2.5)
-                if x == columnas-1:
-                    ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='black', linewidth=2.5)
-            else:
-                # CAMBIO: Usar grid_state en lugar de grid para los muros
-                if model is not None:
-                    muro_n, muro_e, muro_s, muro_o = model.grid_state[y, x]["walls"]
-                else:
-                    muro_n, muro_e, muro_s, muro_o = grid[y, x]
-
-                # Comprobar si hay una puerta o entrada en cada dirección
-                puerta_n = (y, x, 0) in door_positions
-                puerta_e = (y, x, 1) in door_positions
-                puerta_s = (y, x, 2) in door_positions
-                puerta_o = (y, x, 3) in door_positions
-                
-                entrada_n = (y, x, 0) in entry_positions
-                entrada_e = (y, x, 1) in entry_positions
-                entrada_s = (y, x, 2) in entry_positions
-                entrada_o = (y, x, 3) in entry_positions
-
-                # Dibujar muros, puertas o entradas según corresponda
-                if entrada_n:
-                    # Dibujar entrada norte
-                    ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color='white', linewidth=4.0)
-                elif puerta_n:
-                    # Dibujar puerta norte según su estado
-                    puerta_color = 'brown'
-                    puerta_abierta = False
-                    if model is not None and (y, x, 0) in model.door_states:
-                        puerta_abierta = model.door_states[(y, x, 0)] == "abierta"
-                        puerta_color = 'green' if puerta_abierta else 'brown'
-                    else:
-                        # Si no está en door_states pero es una puerta, se considera destruida
-                        if model is not None:
-                            puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
-                    ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color=puerta_color, linewidth=2.5)
-                elif muro_n:
-                    # Dibujar muro norte
-                    muro_color = 'black'
-                    if model is not None and (y, x, 0) in model.wall_damage:
-                        # Si el muro tiene daño, cambiar color
-                        if model.wall_damage[(y, x, 0)] == 1:
-                            muro_color = 'orange'  # Muro dañado una vez
-                        # Si tiene 2 daños, no se dibuja (está destruido)
-                        elif model.wall_damage[(y, x, 0)] >= 2:
-                            muro_color = None  # No dibujar
-                    
-                    if muro_color:
-                        ax.plot([x, x+1], [filas - y, filas - y], color=muro_color, linewidth=2.5)
-                
-                # Para las puertas en dirección Este:
-                if entrada_e:
-                    # Dibujar entrada este
-                    ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
-                elif puerta_e:
-                    # Dibujar puerta este según su estado
-                    puerta_color = 'brown'
-                    if model is not None and (y, x, 1) in model.door_states:
-                        puerta_abierta = model.door_states[(y, x, 1)] == "abierta"
-                        puerta_color = 'green' if puerta_abierta else 'brown'
-                    else:
-                        # Si no está en door_states pero es una puerta, se considera destruida
-                        if model is not None:
-                            puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
-                    ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
-                elif muro_e:
-                    # Dibujar muro este
-                    muro_color = 'black'
-                    if model is not None and (y, x, 1) in model.wall_damage:
-                        # Si el muro tiene daño, cambiar color
-                        if model.wall_damage[(y, x, 1)] == 1:
-                            muro_color = 'orange'
-                        elif model.wall_damage[(y, x, 1)] >= 2:
-                            muro_color = None
-                    
-                    if muro_color:
-                        ax.plot([x+1, x+1], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
-                
-                # Para las puertas en dirección Sur:
-                if entrada_s:
-                    # Dibujar entrada sur
-                    ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color='white', linewidth=4.0)
-                elif puerta_s:
-                    # Dibujar puerta sur según su estado
-                    puerta_color = 'brown'
-                    if model is not None and (y, x, 2) in model.door_states:
-                        puerta_abierta = model.door_states[(y, x, 2)] == "abierta"
-                        puerta_color = 'green' if puerta_abierta else 'brown'
-                    else:
-                        # Si no está en door_states pero es una puerta, se considera destruida
-                        if model is not None:
-                            puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
-                    ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color=puerta_color, linewidth=2.5)
-                elif muro_s:
-                    # Dibujar muro sur
-                    muro_color = 'black'
-                    if model is not None and (y, x, 2) in model.wall_damage:
-                        # Si el muro tiene daño, cambiar color
-                        if model.wall_damage[(y, x, 2)] == 1:
-                            muro_color = 'orange'
-                        elif model.wall_damage[(y, x, 2)] >= 2:
-                            muro_color = None
-                    
-                    if muro_color:
-                        ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color=muro_color, linewidth=2.5)
-                
-                if entrada_o:
-                    # Dibujar entrada oeste
-                    ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
-                elif puerta_o:
-                    # Dibujar puerta oeste según su estado
-                    puerta_color = 'brown'
-                    if model is not None and (y, x, 3) in model.door_states:
-                        puerta_abierta = model.door_states[(y, x, 3)] == "abierta"
-                        puerta_color = 'green' if puerta_abierta else 'brown'
-                    else:
-                        # Si no está en door_states pero es una puerta, se considera destruida
-                        if model is not None:
-                            puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
-                    ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
-                elif muro_o:
-                    # Dibujar muro oeste
-                    muro_color = 'black'
-                    if model is not None and (y, x, 3) in model.wall_damage:
-                        # Si el muro tiene daño, cambiar color
-                        if model.wall_damage[(y, x, 3)] == 1:
-                            muro_color = 'orange'
-                        elif model.wall_damage[(y, x, 3)] >= 2:
-                            muro_color = None
-                    
-                    if muro_color:
-                        ax.plot([x, x], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
-                    
-    # Agregar elementos a la leyenda
-    entrada_line = plt.Line2D([0], [0], color='white', linewidth=4.0, label='Entrada bomberos')
-    perimetro_patch = patches.Patch(color='#b3e6b3', label='Perímetro')
-    jugable_patch = patches.Patch(color='#e6f7ff', label='Celda jugable')
-    puerta_line = plt.Line2D([0], [0], color='brown', linewidth=2.5, label='Puerta')
-    muro_line = plt.Line2D([0], [0], color='black', linewidth=2.5, label='Muro')
-    
-    # Nuevos elementos para la leyenda
-    fire_marker = plt.Line2D([0], [0], marker='o', markersize=15, markerfacecolor='#ff6600', 
-                            markeredgecolor='red', alpha=0.7, linestyle='', label='Fuego')
-    smoke_marker = plt.Line2D([0], [0], marker='s', markersize=14, markerfacecolor='#a6a6a6', 
-                            markeredgecolor='#808080', alpha=0.6, linestyle='', label='Humo')
-    victim_marker = plt.Line2D([0], [0], marker='D', markersize=12, markerfacecolor='#00cc66', 
-                            markeredgecolor='black', linestyle='', label='Víctima (POI)')
-    false_alarm_marker = plt.Line2D([0], [0], marker='X', markersize=12, markerfacecolor='#cccccc', 
-                            markeredgecolor='black', linestyle='', label='Falsa alarma (POI)')
-    
-    ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
-                    fire_marker, smoke_marker, victim_marker, false_alarm_marker], 
-            loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
-
-
-
-    if model is not None:
-        # Agregar bomberos a la leyenda
-        bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
-                                  markerfacecolor='blue', markeredgecolor='navy', 
-                                  alpha=0.7, linestyle='', label='Bombero')
-        
-        # Actualizar la leyenda para incluir bomberos
-        ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, 
-                          puerta_line, fire_marker, victim_marker, false_alarm_marker,
-                          bombero_marker], 
-                  loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
-        
-        # Configurar límites para ver TODA el área, incluido el exterior
-        ax.set_xlim(-1, columnas+1) 
-        ax.set_ylim(-1, filas+1)
-        
-        # Dibujar bomberos como círculos azules con número de identificación
-        for agent in model.schedule.agents:
-            x, y = agent.pos  # Mesa usa (x=columna, y=fila)
-            # Dibujamos bomberos con coordenadas ajustadas
-            ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=24, 
-                    markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
-            ax.text(x + 0.5, filas - y - 0.5, str(agent.unique_id), color='white', 
-                    fontsize=12, ha='center', va='center', zorder=26)
-        
-        # Actualizar título si hay un modelo
-        ax.set_title(f"Simulación - Paso {model.step_count}")
-    
-    # Aspecto visual 
-    ax.set_xticks(range(columnas))
-    ax.set_yticks(range(filas))
-    ax.set_xticklabels(range(columnas))
-    ax.set_yticklabels(range(filas - 1, -1, -1))
-    ax.set_aspect('equal')
-    
-    # NO fijar estos límites, pues restringen la visualización de los bomberos
-    # ax.set_xlim(0, columnas) 
-    # ax.set_ylim(0, filas)
-    
-    # IMPORTANTE: Actualizar el título para reflejar el paso actual
-    if model is not None:
-        ax.set_title(f"Simulación - Paso {model.step_count}")
-    else:
-        ax.set_title("Mapa del Escenario 6×8 con Perímetro (8×10), Muros y Puertas")
-    
-    ax.grid(False)
-    plt.tight_layout()
-    plt.show()
-
-# Agregar después de la función visualizar_grid_con_perimetro_y_puertas y antes de la definición de clases
-def advance_fire(model):
-    """Propaga el fuego a través del escenario según las reglas del juego Flash Point: Fire Rescue"""
-    filas, columnas = model.grid_state.shape
-    
-    # Inicializar contadores si no existen
-    if not hasattr(model, 'victims_lost'):
-        model.victims_lost = 0
-    if not hasattr(model, 'damage_counters'):
-        model.damage_counters = 0
-    
-    # 1. SIMULAR TIRADA DE DADOS PARA AGREGAR FUEGO ALEATORIO
-    # Generar coordenadas aleatorias válidas (no en el perímetro)
-    fila_aleatoria = model.random.randint(1, filas-2)
-    columna_aleatoria = model.random.randint(1, columnas-2)
-    
-    # Verificar el estado de la celda aleatoria
-    celda = model.grid_state[fila_aleatoria, columna_aleatoria]
-    
-    print(f"🎲 Tirada de dados: Punto de ignición en ({columna_aleatoria},{fila_aleatoria})")
-    
-    # Caso 1: Celda sin fuego ni humo -> Agregar HUMO (no fuego)
-    if not celda["fire"] and not celda["smoke"]:
-        celda["smoke"] = True  # Colocar humo en lugar de fuego
-        print(f"💨 Humo añadido en ({columna_aleatoria},{fila_aleatoria})")
-    
-    # Caso 2: Celda con humo -> Convertir a fuego
-    elif not celda["fire"] and celda["smoke"]:
-        celda["fire"] = True
-        celda["smoke"] = False
-        if (fila_aleatoria, columna_aleatoria) not in model.scenario["fires"]:
-            model.scenario["fires"].append((fila_aleatoria, columna_aleatoria))
-        print(f"🔥 Fuego se propaga a ({columna_aleatoria},{fila_aleatoria}): había humo → ahora es fuego.")
-        
-        # Verificar si hay víctima en la celda
-        if celda["poi"] == "v":
-            celda["poi"] = None
-            model.victims_lost += 1
-            print(f"💀 Víctima en ({columna_aleatoria},{fila_aleatoria}) murió en el incendio")
-            
-            # Actualizar POIs en el escenario
-            for i, poi in enumerate(model.scenario["pois"]):
-                if poi[0] == fila_aleatoria and poi[1] == columna_aleatoria:
-                    model.scenario["pois"].pop(i)
-                    break
-    
-    # Caso 3: Celda con fuego -> EXPLOSIÓN
-    elif celda["fire"]:
-        print(f"💥 ¡EXPLOSIÓN! El fuego cayó en una celda que ya tenía fuego: ({columna_aleatoria},{fila_aleatoria})")
-        
-        # Generar explosión en las 4 direcciones: Norte, Este, Sur, Oeste
-        for direccion in range(4):
-            propagar_explosion(model, fila_aleatoria, columna_aleatoria, direccion)
-    
-    # 2. PROPAGACIÓN DE HUMO A FUEGO (segunda fase)
-    nuevos_fuegos = []  # Lista de (y, x) donde habrá fuego nuevo
-    nuevos_humos = []   # Lista de (y, x) donde habrá humo nuevo
-    
-    # Detectar propagación del fuego
-    for y in range(filas):
-        for x in range(columnas):
-            # Si la celda tiene fuego, propagar a celdas adyacentes
-            if model.grid_state[y, x]["fire"]:
-                # Verificar propagación en las 4 direcciones
-                for direccion in range(4):
-                    # Si no hay muro en esta dirección o el muro está destruido
-                    if DirectionHelper.can_pass_wall(model, y, x, direccion):
-                        # Obtener coordenadas de la celda adyacente
-                        nx, ny = DirectionHelper.get_adjacent_position(x, y, direccion)
-                        
-                        # Verificar si está dentro de los límites
-                        if 0 <= ny < filas and 0 <= nx < columnas:
-                            # Verificar si no está en el perímetro
-                            if not DirectionHelper.is_perimeter(model, nx, ny):
-                                # Verificar si la celda adyacente no tiene fuego
-                                if not model.grid_state[ny, nx]["fire"]:
-                                    if model.grid_state[ny, nx]["smoke"]:
-                                        # Si hay humo, convertir a fuego
-                                        nuevos_fuegos.append((ny, nx))
-                                    else:
-                                        # Si no hay humo, añadir humo
-                                        nuevos_humos.append((ny, nx))
-    
-    # Aplicar los cambios detectados
-    # Primero aplicamos los nuevos fuegos
-    for y, x in nuevos_fuegos:
-        model.grid_state[y, x]["fire"] = True
-        model.grid_state[y, x]["smoke"] = False  # El humo se convierte en fuego
-        # Añadir a la lista de fuegos del escenario
-        pos_fuego = (y, x)
-        if pos_fuego not in model.scenario["fires"]:
-            model.scenario["fires"].append(pos_fuego)
-        # Imprimir mensaje informativo
-        print(f"🔥 Fuego se propaga a ({x},{y}): había humo → ahora es fuego.")
-        
-        # Verificar si hay víctima en la celda
-        if model.grid_state[y, x]["poi"] == "v":
-            model.grid_state[y, x]["poi"] = None
-            model.victims_lost += 1
-            print(f"💀 Víctima en ({x},{y}) murió en el incendio")
-            
-            # Actualizar POIs en el escenario
-            for i, poi in enumerate(model.scenario["pois"]):
-                if poi[0] == y and poi[1] == x:
-                    model.scenario["pois"].pop(i)
-                    break
-    
-    # Luego aplicamos los nuevos humos (evitando duplicados con los nuevos fuegos)
-    for y, x in nuevos_humos:
-        if (y, x) not in nuevos_fuegos:  # Evitar duplicados
-            model.grid_state[y, x]["smoke"] = True
-            # Imprimir mensaje informativo
-            print(f"💨 Fuego genera humo en ({x},{y}).")
-
-def propagar_explosion(model, fila, columna, direction):
-    """Propaga una explosión en la dirección especificada hasta encontrar un obstáculo"""
-    filas, columnas = model.grid_state.shape
-    
-    # Determinar la dirección del desplazamiento
-    dx, dy = DirectionHelper.DIRECTIONS[direction]
-    dir_name = DirectionHelper.DIRECTION_NAMES[direction]
-    
-    print(f"💥 ¡Explosión! El fuego se propaga al {dir_name} desde ({columna},{fila})")
-    
-    # Eliminar todas las puertas adyacentes al espacio objetivo de la explosión original
-    if direction == DirectionHelper.NORTH:  # Solo en la primera dirección para evitar duplicados
-        # Buscar puertas en las cuatro direcciones cardinales
-        door_positions = compute_door_positions(model.scenario["doors"])
-        
-        # Verificar norte
-        puerta_norte = (fila, columna, DirectionHelper.NORTH)
-        if puerta_norte in door_positions:
-            if puerta_norte in model.door_states:
-                del model.door_states[puerta_norte]
-            print(f"🚪 La explosión destruyó una puerta al norte de ({columna},{fila})")
-        
-        # Verificar este
-        puerta_este = (fila, columna, DirectionHelper.EAST)
-        if puerta_este in door_positions:
-            if puerta_este in model.door_states:
-                del model.door_states[puerta_este]
-            print(f"🚪 La explosión destruyó una puerta al este de ({columna},{fila})")
-        
-        # Verificar sur
-        puerta_sur = (fila, columna, DirectionHelper.SOUTH)
-        if puerta_sur in door_positions:
-            if puerta_sur in model.door_states:
-                del model.door_states[puerta_sur]
-            print(f"🚪 La explosión destruyó una puerta al sur de ({columna},{fila})")
-        
-        # Verificar oeste
-        puerta_oeste = (fila, columna, DirectionHelper.WEST)
-        if puerta_oeste in door_positions:
-            if puerta_oeste in model.door_states:
-                del model.door_states[puerta_oeste]
-            print(f"🚪 La explosión destruyó una puerta al oeste de ({columna},{fila})")
-    
-    # Iniciar propagación
-    x, y = columna, fila
-    muro_encontrado = False
-    
-    while not muro_encontrado:
-        # Calcular nueva posición
-        nuevo_x, nuevo_y = x + dx, y + dy
-        
-        # Verificar si estamos dentro de los límites
-        if nuevo_y < 0 or nuevo_y >= filas or nuevo_x < 0 or nuevo_x >= columnas:
-            print(f"💥 Explosión detenida: alcanzó el borde del tablero en ({x},{y})")
-            break
-            
-        # Verificar si estamos en el perímetro (donde no debe propagarse)
-        if DirectionHelper.is_perimeter(model, nuevo_x, nuevo_y):
-            print(f"💥 Explosión detenida: alcanzó el perímetro en ({nuevo_x},{nuevo_y})")
-            break
-        
-        # NUEVO: Verificar primero si hay una puerta en la dirección de la explosión
-        puerta_en_camino = None
-        door_positions = compute_door_positions(model.scenario["doors"])
-        
-        puerta_en_camino = (y, x, direction)
-            
-        if puerta_en_camino in door_positions:
-            # Hay una puerta en el camino, la eliminamos (no importa si está abierta o cerrada)
-            if puerta_en_camino in model.door_states:
-                del model.door_states[puerta_en_camino]
-            print(f"🚪 La explosión destruyó una puerta entre ({x},{y}) y ({nuevo_x},{nuevo_y})")
-            # La explosión continúa después de destruir la puerta
-            y = nuevo_y
-            x = nuevo_x
-            continue
-        
-        # Verificar si hay un muro en el camino (si no hay puerta)
-        hay_muro = DirectionHelper.has_wall(model, y, x, direction)
-        pared_key = DirectionHelper.get_wall_key(y, x, direction)
-        
-        # Verificar si el muro ya tiene 2 daños (destruido)
-        muro_destruido = DirectionHelper.is_wall_destroyed(model, y, x, direction)
-            
-        if hay_muro and not muro_destruido:
-            # Agregar daño al muro
-            muro_destruido = DirectionHelper.damage_wall(model, y, x, direction)
-            
-            print(f"🧱 Muro dañado entre ({x},{y}) y ({nuevo_x},{nuevo_y}), daño total: {model.wall_damage[pared_key]}")
-            
-            if muro_destruido:
-                print(f"🧱 Muro entre ({x},{y}) y ({nuevo_x},{nuevo_y}) fue destruido")
-                # La explosión continúa
-            else:
-                # Si el muro no está destruido, la explosión se detiene
-                muro_encontrado = True
-                break
-        
-        # Si el muro estaba destruido o no había muro, la explosión continúa
-        if not hay_muro or muro_destruido:
-            # Avanzamos a la nueva posición
-            x, y = nuevo_x, nuevo_y
-            celda = model.grid_state[y, x]
-            
-            # Si hay víctima en la celda, la víctima muere
+            # Verificar si hay víctima en la celda
             if celda["poi"] == "v":
                 celda["poi"] = None
                 model.victims_lost += 1
-                print(f"💀 Víctima en ({x},{y}) murió en la explosión")
+                print(f"💀 Víctima en ({columna_aleatoria},{fila_aleatoria}) murió en el incendio")
+                
+                # Actualizar POIs en el escenario
+                for i, poi in enumerate(model.scenario["pois"]):
+                    if poi[0] == fila_aleatoria and poi[1] == columna_aleatoria:
+                        model.scenario["pois"].pop(i)
+                        break
+        
+        # Caso 3: Celda con fuego -> EXPLOSIÓN
+        elif celda["fire"]:
+            print(f"💥 ¡EXPLOSIÓN! El fuego cayó en una celda que ya tenía fuego: ({columna_aleatoria},{fila_aleatoria})")
+            
+            # Generar explosión en las 4 direcciones: Norte, Este, Sur, Oeste
+            for direccion in range(4):
+                GameMechanics.propagar_explosion(model, fila_aleatoria, columna_aleatoria, direccion)
+        
+        # 2. PROPAGACIÓN DE HUMO A FUEGO (segunda fase)
+        nuevos_fuegos = []  # Lista de (y, x) donde habrá fuego nuevo
+        nuevos_humos = []   # Lista de (y, x) donde habrá humo nuevo
+        
+        # Detectar propagación del fuego
+        for y in range(filas):
+            for x in range(columnas):
+                # Si la celda tiene fuego, propagar a celdas adyacentes
+                if model.grid_state[y, x]["fire"]:
+                    # Verificar propagación en las 4 direcciones
+                    for direccion in range(4):
+                        # Si no hay muro en esta dirección o el muro está destruido
+                        if DirectionHelper.can_pass_wall(model, y, x, direccion):
+                            # Obtener coordenadas de la celda adyacente
+                            nx, ny = DirectionHelper.get_adjacent_position(x, y, direccion)
+                            
+                            # Verificar si está dentro de los límites
+                            if 0 <= ny < filas and 0 <= nx < columnas:
+                                # Verificar si no está en el perímetro
+                                if not DirectionHelper.is_perimeter(model, nx, ny):
+                                    # Verificar si la celda adyacente no tiene fuego
+                                    if not model.grid_state[ny, nx]["fire"]:
+                                        if model.grid_state[ny, nx]["smoke"]:
+                                            # Si hay humo, convertir a fuego
+                                            nuevos_fuegos.append((ny, nx))
+                                        else:
+                                            # Si no hay humo, añadir humo
+                                            nuevos_humos.append((ny, nx))
+        
+        # Aplicar los cambios detectados
+        # Primero aplicamos los nuevos fuegos
+        for y, x in nuevos_fuegos:
+            model.grid_state[y, x]["fire"] = True
+            model.grid_state[y, x]["smoke"] = False  # El humo se convierte en fuego
+            # Añadir a la lista de fuegos del escenario
+            pos_fuego = (y, x)
+            if pos_fuego not in model.scenario["fires"]:
+                model.scenario["fires"].append(pos_fuego)
+            # Imprimir mensaje informativo
+            print(f"🔥 Fuego se propaga a ({x},{y}): había humo → ahora es fuego.")
+            
+            # Verificar si hay víctima en la celda
+            if model.grid_state[y, x]["poi"] == "v":
+                model.grid_state[y, x]["poi"] = None
+                model.victims_lost += 1
+                print(f"💀 Víctima en ({x},{y}) murió en el incendio")
+                
+                # Actualizar POIs en el escenario
+                for i, poi in enumerate(model.scenario["pois"]):
+                    if poi[0] == y and poi[1] == x:
+                        model.scenario["pois"].pop(i)
+                        break
+        
+        # Luego aplicamos los nuevos humos (evitando duplicados con los nuevos fuegos)
+        for y, x in nuevos_humos:
+            if (y, x) not in nuevos_fuegos:  # Evitar duplicados
+                model.grid_state[y, x]["smoke"] = True
+                # Imprimir mensaje informativo
+                print(f"💨 Fuego genera humo en ({x},{y}).")
+
+    @staticmethod
+    def propagar_explosion(model, fila, columna, direction):
+        """Propaga una explosión en la dirección especificada hasta encontrar un obstáculo"""
+        filas, columnas = model.grid_state.shape
+        
+        # Determinar la dirección del desplazamiento
+        dx, dy = DirectionHelper.DIRECTIONS[direction]
+        dir_name = DirectionHelper.DIRECTION_NAMES[direction]
+        
+        print(f"💥 ¡Explosión! El fuego se propaga al {dir_name} desde ({columna},{fila})")
+        
+        # Eliminar todas las puertas adyacentes al espacio objetivo de la explosión original
+        if direction == DirectionHelper.NORTH:  # Solo en la primera dirección para evitar duplicados
+            # Buscar puertas en las cuatro direcciones cardinales
+            door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
+            
+            # Verificar norte
+            puerta_norte = (fila, columna, DirectionHelper.NORTH)
+            if puerta_norte in door_positions:
+                if puerta_norte in model.door_states:
+                    del model.door_states[puerta_norte]
+                print(f"🚪 La explosión destruyó una puerta al norte de ({columna},{fila})")
+            
+            # Verificar este
+            puerta_este = (fila, columna, DirectionHelper.EAST)
+            if puerta_este in door_positions:
+                if puerta_este in model.door_states:
+                    del model.door_states[puerta_este]
+                print(f"🚪 La explosión destruyó una puerta al este de ({columna},{fila})")
+            
+            # Verificar sur
+            puerta_sur = (fila, columna, DirectionHelper.SOUTH)
+            if puerta_sur in door_positions:
+                if puerta_sur in model.door_states:
+                    del model.door_states[puerta_sur]
+                print(f"🚪 La explosión destruyó una puerta al sur de ({columna},{fila})")
+            
+            # Verificar oeste
+            puerta_oeste = (fila, columna, DirectionHelper.WEST)
+            if puerta_oeste in door_positions:
+                if puerta_oeste in model.door_states:
+                    del model.door_states[puerta_oeste]
+                print(f"🚪 La explosión destruyó una puerta al oeste de ({columna},{fila})")
+        
+        # Iniciar propagación
+        x, y = columna, fila
+        muro_encontrado = False
+        
+        while not muro_encontrado:
+            # Calcular nueva posición
+            nuevo_x, nuevo_y = x + dx, y + dy
+            
+            # Verificar si estamos dentro de los límites
+            if nuevo_y < 0 or nuevo_y >= filas or nuevo_x < 0 or nuevo_x >= columnas:
+                print(f"💥 Explosión detenida: alcanzó el borde del tablero en ({x},{y})")
+                break
+                
+            # Verificar si estamos en el perímetro (donde no debe propagarse)
+            if DirectionHelper.is_perimeter(model, nuevo_x, nuevo_y):
+                print(f"💥 Explosión detenida: alcanzó el perímetro en ({nuevo_x},{nuevo_y})")
+                break
+            
+            # NUEVO: Verificar primero si hay una puerta en la dirección de la explosión
+            puerta_en_camino = None
+            door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
+            
+            puerta_en_camino = (y, x, direction)
+                
+            if puerta_en_camino in door_positions:
+                # Hay una puerta en el camino, la eliminamos (no importa si está abierta o cerrada)
+                if puerta_en_camino in model.door_states:
+                    del model.door_states[puerta_en_camino]
+                print(f"🚪 La explosión destruyó una puerta entre ({x},{y}) y ({nuevo_x},{nuevo_y})")
+                # La explosión continúa después de destruir la puerta
+                y = nuevo_y
+                x = nuevo_x
+                continue
+            
+            # Verificar si hay un muro en el camino (si no hay puerta)
+            hay_muro = DirectionHelper.has_wall(model, y, x, direction)
+            pared_key = DirectionHelper.get_wall_key(y, x, direction)
+            
+            # Verificar si el muro ya tiene 2 daños (destruido)
+            muro_destruido = DirectionHelper.is_wall_destroyed(model, y, x, direction)
+                
+            if hay_muro and not muro_destruido:
+                # Agregar daño al muro
+                muro_destruido = DirectionHelper.damage_wall(model, y, x, direction)
+                
+                print(f"🧱 Muro dañado entre ({x},{y}) y ({nuevo_x},{nuevo_y}), daño total: {model.wall_damage[pared_key]}")
+                
+                if muro_destruido:
+                    print(f"🧱 Muro entre ({x},{y}) y ({nuevo_x},{nuevo_y}) fue destruido")
+                    # La explosión continúa
+                else:
+                    # Si el muro no está destruido, la explosión se detiene
+                    muro_encontrado = True
+                    break
+            
+            # Si el muro estaba destruido o no había muro, la explosión continúa
+            if not hay_muro or muro_destruido:
+                # Avanzamos a la nueva posición
+                x, y = nuevo_x, nuevo_y
+                celda = model.grid_state[y, x]
+                
+                # Si hay víctima en la celda, la víctima muere
+                if celda["poi"] == "v":
+                    celda["poi"] = None
+                    model.victims_lost += 1
+                    print(f"💀 Víctima en ({x},{y}) murió en la explosión")
+                    
+                    # Actualizar POIs en el escenario
+                    for i, poi in enumerate(model.scenario["pois"]):
+                        if poi[0] == y and poi[1] == x:
+                            model.scenario["pois"].pop(i)
+                            break
+                
+                # Si hay humo, se convierte en fuego
+                if celda["smoke"]:
+                    celda["smoke"] = False
+                    celda["fire"] = True
+                    if (y, x) not in model.scenario["fires"]:
+                        model.scenario["fires"].append((y, x))
+                    print(f"🔥 Explosión convierte humo en fuego en ({x},{y})")
+                
+                # Si no hay fuego ni humo, se agrega fuego
+                elif not celda["fire"]:
+                    celda["fire"] = True
+                    if (y, x) not in model.scenario["fires"]:
+                        model.scenario["fires"].append((y, x))
+                    print(f"🔥 Explosión propaga fuego a ({x},{y})")
+                
+                # NUEVO: Si ya hay fuego, se genera una shockwave
+                else:
+                    print(f"🔥 Explosión alcanzó una celda con fuego en ({x},{y})")
+                    print(f"⚡ ¡Se genera una SHOCKWAVE en la dirección {dir_name}!")
+                    # Iniciar shockwave desde esta celda
+                    GameMechanics.shockwave(model, y, x, direction)
+                    # La explosión se detiene aquí porque ya se generó una shockwave
+                    break
+
+    @staticmethod
+    def shockwave(model, fila, columna, direction):
+        """
+        Propaga una onda expansiva (shockwave) en la dirección especificada
+        cuando una explosión alcanza una celda que ya tiene fuego
+        """
+        filas, columnas = model.grid_state.shape
+        
+        # Determinar la dirección del desplazamiento
+        dx, dy = DirectionHelper.DIRECTIONS[direction]
+        dir_name = DirectionHelper.DIRECTION_NAMES[direction]
+        
+        print(f"⚡ ¡SHOCKWAVE! Onda expansiva iniciada al {dir_name} desde ({columna},{fila})")
+        
+        # Iniciar propagación de la shockwave
+        x, y = columna, fila
+        detenida = False
+        
+        while not detenida:
+            # Calcular nueva posición
+            nuevo_x, nuevo_y = x + dx, y + dy
+            x, y = nuevo_x, nuevo_y  # Actualizar posición actual
+            
+            # Verificar si estamos dentro de los límites
+            if y < 0 or y >= filas or x < 0 or x >= columnas:
+                print(f"⚡ Shockwave alcanzó el borde del tablero en ({x-dx},{y-dy})")
+                break
+            
+            # Verificar si hay una puerta en la dirección de avance desde la posición anterior
+            puerta_key = (y-dy, x-dx, direction)
+            door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
+            
+            if puerta_key in door_positions:
+                # Verificar si la puerta está cerrada o abierta
+                if puerta_key in model.door_states:
+                    puerta_estado = model.door_states[puerta_key]
+                    if puerta_estado == "cerrada":
+                        # Si está cerrada, eliminarla y continuar
+                        del model.door_states[puerta_key]
+                        print(f"⚡ Shockwave destruyó una puerta cerrada entre ({x-dx},{y-dy}) y ({x},{y})")
+                        # Continuar la propagación (no detenerse)
+                    else:
+                        # Si está abierta, atravesarla
+                        print(f"⚡ Shockwave atravesó una puerta abierta entre ({x-dx},{y-dy}) y ({x},{y})")
+                        # Continuar la propagación (no detenerse)
+                else:
+                    # Si la puerta no está en door_states, ya estaba destruida
+                    print(f"⚡ Shockwave atravesó una puerta destruida entre ({x-dx},{y-dy}) y ({x},{y})")
+                    # Continuar la propagación (no detenerse)
+            else:
+                # Verificar si hay un muro en la dirección de avance desde la posición anterior
+                hay_muro = DirectionHelper.has_wall(model, y-dy, x-dx, direction)
+                
+                if hay_muro:
+                    # Verificar si el muro ya tiene 2 daños (destruido)
+                    muro_destruido = DirectionHelper.is_wall_destroyed(model, y-dy, x-dx, direction)
+                    
+                    if muro_destruido:
+                        # Si el muro está destruido, atravesarlo
+                        print(f"⚡ Shockwave atravesó un muro destruido entre ({x-dx},{y-dy}) y ({x},{y})")
+                        # Continuar la propagación (no detenerse)
+                    else:
+                        # Si el muro no está destruido, dañarlo
+                        pared_key = DirectionHelper.get_wall_key(y-dy, x-dx, direction)
+                        DirectionHelper.damage_wall(model, y-dy, x-dx, direction)
+                        
+                        if pared_key in model.wall_damage:
+                            daño = model.wall_damage[pared_key]
+                        else:
+                            daño = 1
+                            
+                        if daño >= 2:
+                            print(f"⚡ Shockwave destruyó un muro entre ({x-dx},{y-dy}) y ({x},{y})")
+                            # Si se destruyó el muro, continuar la propagación
+                        else:
+                            print(f"⚡ Shockwave dañó un muro entre ({x-dx},{y-dy}) y ({x},{y}), daño total: {daño}")
+                            # Si sólo lo dañó pero no se destruyó, detenerse
+                            detenida = True
+                            break
+            
+            # Si llegamos aquí, es porque no había muro o puerta que detuviera la shockwave
+            # O porque atravesó un muro/puerta destruido/abierto
+            
+            # Verificar si estamos en el perímetro (donde no debe propagar efectos)
+            if DirectionHelper.is_perimeter(model, x, y):
+                print(f"⚡ Shockwave alcanzó el perímetro en ({x},{y})")
+                break
+            
+            # Verificar efectos en la celda actual
+            celda = model.grid_state[y, x]
+            
+            # Verificar si hay víctima en la celda
+            if celda["poi"] == "v":
+                celda["poi"] = None
+                model.victims_lost += 1
+                print(f"💀 Víctima en ({x},{y}) murió por la onda expansiva")
                 
                 # Actualizar POIs en el escenario
                 for i, poi in enumerate(model.scenario["pois"]):
@@ -905,363 +696,225 @@ def propagar_explosion(model, fila, columna, direction):
                         model.scenario["pois"].pop(i)
                         break
             
-            # Si hay humo, se convierte en fuego
-            if celda["smoke"]:
+            # Verificar el estado de la celda y aplicar efectos
+            if celda["fire"]:
+                # Si ya hay fuego, la shockwave continúa
+                print(f"⚡ Shockwave atraviesa celda con fuego en ({x},{y})")
+                # No detenerse, continuar propagación
+            elif celda["smoke"]:
+                # Si hay humo, convertir a fuego y detenerse
                 celda["smoke"] = False
                 celda["fire"] = True
                 if (y, x) not in model.scenario["fires"]:
                     model.scenario["fires"].append((y, x))
-                print(f"🔥 Explosión convierte humo en fuego en ({x},{y})")
-            
-            # Si no hay fuego ni humo, se agrega fuego
-            elif not celda["fire"]:
+                print(f"⚡ Shockwave convirtió humo en fuego en ({x},{y}) y se detuvo")
+                detenida = True
+            else:
+                # Si no hay fuego ni humo, colocar fuego y detenerse
                 celda["fire"] = True
                 if (y, x) not in model.scenario["fires"]:
                     model.scenario["fires"].append((y, x))
-                print(f"🔥 Explosión propaga fuego a ({x},{y})")
-            
-            # NUEVO: Si ya hay fuego, se genera una shockwave
-            else:
-                print(f"🔥 Explosión alcanzó una celda con fuego en ({x},{y})")
-                print(f"⚡ ¡Se genera una SHOCKWAVE en la dirección {dir_name}!")
-                # Iniciar shockwave desde esta celda
-                shockwave(model, y, x, direction)
-                # La explosión se detiene aquí porque ya se generó una shockwave
-                break
+                print(f"⚡ Shockwave provocó fuego en ({x},{y}) y se detuvo")
+                detenida = True
 
-
-def shockwave(model, fila, columna, direction):
-    """
-    Propaga una onda expansiva (shockwave) en la dirección especificada
-    cuando una explosión alcanza una celda que ya tiene fuego
-    """
-    filas, columnas = model.grid_state.shape
-    
-    # Determinar la dirección del desplazamiento
-    dx, dy = DirectionHelper.DIRECTIONS[direction]
-    dir_name = DirectionHelper.DIRECTION_NAMES[direction]
-    
-    print(f"⚡ ¡SHOCKWAVE! Onda expansiva iniciada al {dir_name} desde ({columna},{fila})")
-    
-    # Iniciar propagación de la shockwave
-    x, y = columna, fila
-    detenida = False
-    
-    while not detenida:
-        # Calcular nueva posición
-        nuevo_x, nuevo_y = x + dx, y + dy
-        x, y = nuevo_x, nuevo_y  # Actualizar posición actual
+    @staticmethod
+    def check_firefighters_in_fire(model):
+        """Verifica si hay bomberos en celdas con fuego y los envía a la ambulancia"""
+        filas, columnas = model.grid_state.shape
+        bomberos_heridos = []  # Lista para rastrear bomberos heridos en este paso
         
-        # Verificar si estamos dentro de los límites
-        if y < 0 or y >= filas or x < 0 or x >= columnas:
-            print(f"⚡ Shockwave alcanzó el borde del tablero en ({x-dx},{y-dy})")
-            break
+        # Definir la posición de la ambulancia en la esquina superior derecha
+        ambulance_pos = (9, 0)  # Esquina superior derecha (x=9, y=0)
         
-        # Verificar si hay una puerta en la dirección de avance desde la posición anterior
-        puerta_key = (y-dy, x-dx, direction)
-        door_positions = compute_door_positions(model.scenario["doors"])
-        
-        if puerta_key in door_positions:
-            # Verificar si la puerta está cerrada o abierta
-            if puerta_key in model.door_states:
-                puerta_estado = model.door_states[puerta_key]
-                if puerta_estado == "cerrada":
-                    # Si está cerrada, eliminarla y continuar
-                    del model.door_states[puerta_key]
-                    print(f"⚡ Shockwave destruyó una puerta cerrada entre ({x-dx},{y-dy}) y ({x},{y})")
-                    # Continuar la propagación (no detenerse)
-                else:
-                    # Si está abierta, atravesarla
-                    print(f"⚡ Shockwave atravesó una puerta abierta entre ({x-dx},{y-dy}) y ({x},{y})")
-                    # Continuar la propagación (no detenerse)
-            else:
-                # Si la puerta no está en door_states, ya estaba destruida
-                print(f"⚡ Shockwave atravesó una puerta destruida entre ({x-dx},{y-dy}) y ({x},{y})")
-                # Continuar la propagación (no detenerse)
-        else:
-            # Verificar si hay un muro en la dirección de avance desde la posición anterior
-            hay_muro = DirectionHelper.has_wall(model, y-dy, x-dx, direction)
-            
-            if hay_muro:
-                # Verificar si el muro ya tiene 2 daños (destruido)
-                muro_destruido = DirectionHelper.is_wall_destroyed(model, y-dy, x-dx, direction)
-                
-                if muro_destruido:
-                    # Si el muro está destruido, atravesarlo
-                    print(f"⚡ Shockwave atravesó un muro destruido entre ({x-dx},{y-dy}) y ({x},{y})")
-                    # Continuar la propagación (no detenerse)
-                else:
-                    # Si el muro no está destruido, dañarlo
-                    pared_key = DirectionHelper.get_wall_key(y-dy, x-dx, direction)
-                    DirectionHelper.damage_wall(model, y-dy, x-dx, direction)
+        # Iterar por todas las celdas con fuego
+        for y in range(filas):
+            for x in range(columnas):
+                # Si hay fuego en esta celda
+                if model.grid_state[y, x]["fire"]:
+                    # Verificar si hay bomberos en esta celda
+                    cell_contents = model.grid.get_cell_list_contents((x, y))
+                    firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
                     
-                    if pared_key in model.wall_damage:
-                        daño = model.wall_damage[pared_key]
-                    else:
-                        daño = 1
+                    # Si hay bomberos en la celda con fuego
+                    for ff in firefighters:
+                        # Agregar a la lista de heridos
+                        bomberos_heridos.append(ff)
                         
-                    if daño >= 2:
-                        print(f"⚡ Shockwave destruyó un muro entre ({x-dx},{y-dy}) y ({x},{y})")
-                        # Si se destruyó el muro, continuar la propagación
-                    else:
-                        print(f"⚡ Shockwave dañó un muro entre ({x-dx},{y-dy}) y ({x},{y}), daño total: {daño}")
-                        # Si sólo lo dañó pero no se destruyó, detenerse
-                        detenida = True
-                        break
+        # Si no hay bomberos heridos, mostrar mensaje informativo y salir
+        if not bomberos_heridos:
+            print("✓ No hay bomberos en celdas con fuego")
+            return
         
-        # Si llegamos aquí, es porque no había muro o puerta que detuviera la shockwave
-        # O porque atravesó un muro/puerta destruido/abierto
-        
-        # Verificar si estamos en el perímetro (donde no debe propagar efectos)
-        if DirectionHelper.is_perimeter(model, x, y):
-            print(f"⚡ Shockwave alcanzó el perímetro en ({x},{y})")
-            break
-        
-        # Verificar efectos en la celda actual
-        celda = model.grid_state[y, x]
-        
-        # Verificar si hay víctima en la celda
-        if celda["poi"] == "v":
-            celda["poi"] = None
-            model.victims_lost += 1
-            print(f"💀 Víctima en ({x},{y}) murió por la onda expansiva")
+        # Procesar cada bombero herido
+        for ff in bomberos_heridos:
+            x, y = ff.pos
+            print(f"🚑 ¡BOMBERO HERIDO! El bombero {ff.unique_id} está en una celda con fuego ({x},{y})")
             
-            # Actualizar POIs en el escenario
-            for i, poi in enumerate(model.scenario["pois"]):
-                if poi[0] == y and poi[1] == x:
-                    model.scenario["pois"].pop(i)
-                    break
-        
-        # Verificar el estado de la celda y aplicar efectos
-        if celda["fire"]:
-            # Si ya hay fuego, la shockwave continúa
-            print(f"⚡ Shockwave atraviesa celda con fuego en ({x},{y})")
-            # No detenerse, continuar propagación
-        elif celda["smoke"]:
-            # Si hay humo, convertir a fuego y detenerse
-            celda["smoke"] = False
-            celda["fire"] = True
-            if (y, x) not in model.scenario["fires"]:
-                model.scenario["fires"].append((y, x))
-            print(f"⚡ Shockwave convirtió humo en fuego en ({x},{y}) y se detuvo")
-            detenida = True
-        else:
-            # Si no hay fuego ni humo, colocar fuego y detenerse
-            celda["fire"] = True
-            if (y, x) not in model.scenario["fires"]:
-                model.scenario["fires"].append((y, x))
-            print(f"⚡ Shockwave provocó fuego en ({x},{y}) y se detuvo")
-            detenida = True
+            # Si el bombero lleva una víctima, la víctima se pierde
+            if ff.carrying:
+                ff.carrying = False
+                model.victims_lost += 1
+                print(f"💀 La víctima que llevaba el bombero {ff.unique_id} ha perecido en el incendio")
+                #Reponer POI cuando se pierde una víctima
+                GameMechanics.replenish_pois(model)
+            
+            # Enviar bombero a zona de ambulancia en la esquina superior derecha
+            # Primero, quitar el bombero de su posición actual
+            model.grid.remove_agent(ff)
+            
+            # Luego, colocarlo en la zona de ambulancia
+            model.grid.place_agent(ff, ambulance_pos)
+            
+            print(f"🚑 El bombero {ff.unique_id} ha sido trasladado a la zona de ambulancia ({ambulance_pos})")
+            
+            # Reducir los AP del bombero a 0 para simular que no puede hacer más acciones este turno
+            ff.ap = 0
 
-
-def check_firefighters_in_fire(model):
-    """Verifica si hay bomberos en celdas con fuego y los envía a la ambulancia"""
-    filas, columnas = model.grid_state.shape
-    bomberos_heridos = []  # Lista para rastrear bomberos heridos en este paso
-    
-    # Definir la posición de la ambulancia en la esquina superior derecha
-    ambulance_pos = (9, 0)  # Esquina superior derecha (x=9, y=0)
-    
-    # Iterar por todas las celdas con fuego
-    for y in range(filas):
-        for x in range(columnas):
-            # Si hay fuego en esta celda
-            if model.grid_state[y, x]["fire"]:
-                # Verificar si hay bomberos en esta celda
-                cell_contents = model.grid.get_cell_list_contents((x, y))
-                firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
-                
-                # Si hay bomberos en la celda con fuego
-                for ff in firefighters:
-                    # Agregar a la lista de heridos
-                    bomberos_heridos.append(ff)
-                    
-    # Si no hay bomberos heridos, mostrar mensaje informativo y salir
-    if not bomberos_heridos:
-        print("✓ No hay bomberos en celdas con fuego")
-        return
-    
-    # Procesar cada bombero herido
-    for ff in bomberos_heridos:
-        x, y = ff.pos
-        print(f"🚑 ¡BOMBERO HERIDO! El bombero {ff.unique_id} está en una celda con fuego ({x},{y})")
+    @staticmethod
+    def replenish_pois(model):
+        """Repone los POIs en el tablero para mantener siempre 3 POIs disponibles"""
+        # 1. Contar cuántos POIs hay actualmente en el tablero
+        num_pois_actual = len(model.scenario["pois"])
         
-        # Si el bombero lleva una víctima, la víctima se pierde
-        if ff.carrying:
-            ff.carrying = False
-            model.victims_lost += 1
-            print(f"💀 La víctima que llevaba el bombero {ff.unique_id} ha perecido en el incendio")
-            #Reponer POI cuando se pierde una víctima
-            replenish_pois(model)
+        print(f"\n=== REPOSICIÓN DE POIs ===")
+        print(f"POIs actuales en el tablero: {num_pois_actual}")
         
-        # Enviar bombero a zona de ambulancia en la esquina superior derecha
-        # Primero, quitar el bombero de su posición actual
-        model.grid.remove_agent(ff)
+        # Si ya hay 3 o más POIs, no hacemos nada
+        if num_pois_actual >= 3:
+            print("Ya hay suficientes POIs en el tablero.")
+            return
         
-        # Luego, colocarlo en la zona de ambulancia
-        model.grid.place_agent(ff, ambulance_pos)
+        # 2. Determinar cuántos POIs necesitamos añadir
+        pois_a_aniadir = 3 - num_pois_actual
+        print(f"Se necesitan añadir {pois_a_aniadir} POIs")
         
-        print(f"🚑 El bombero {ff.unique_id} ha sido trasladado a la zona de ambulancia ({ambulance_pos})")
-        
-        # Reducir los AP del bombero a 0 para simular que no puede hacer más acciones este turno
-        ff.ap = 0
-
-def replenish_pois(model):
-    """Repone los POIs en el tablero para mantener siempre 3 POIs disponibles"""
-    # 1. Contar cuántos POIs hay actualmente en el tablero
-    num_pois_actual = len(model.scenario["pois"])
-    
-    print(f"\n=== REPOSICIÓN DE POIs ===")
-    print(f"POIs actuales en el tablero: {num_pois_actual}")
-    
-    # Si ya hay 3 o más POIs, no hacemos nada
-    if num_pois_actual >= 3:
-        print("Ya hay suficientes POIs en el tablero.")
-        return
-    
-    # 2. Determinar cuántos POIs necesitamos añadir
-    pois_a_aniadir = 3 - num_pois_actual
-    print(f"Se necesitan añadir {pois_a_aniadir} POIs")
-    
-    # 3. Inicializar el mazo de POIs si no existe
-    if not hasattr(model, "mazo_pois"):
-        # Contar cuántas víctimas y falsas alarmas hay ya en el escenario inicial
-        num_victimas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "v")
-        num_falsas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "f")
-        
-        # Crear el mazo con los POIs restantes (10 - X víctimas, 5 - Y falsas alarmas)
-        victimas_restantes = 10 - num_victimas_iniciales
-        falsas_restantes = 5 - num_falsas_iniciales
-        
-        # Asegurarse de que no haya números negativos
-        victimas_restantes = max(0, victimas_restantes)
-        falsas_restantes = max(0, falsas_restantes)
-        
-        # Crear el mazo inicial
-        model.mazo_pois = ["v"] * victimas_restantes + ["f"] * falsas_restantes
-        
-        # Barajar el mazo
-        model.random.shuffle(model.mazo_pois)
-        
-        print(f"Mazo de POIs inicializado con {victimas_restantes} víctimas y {falsas_restantes} falsas alarmas.")
-        print(f"Total en el mazo: {len(model.mazo_pois)} POIs")
-    
-    # 4. Para cada POI a añadir, seleccionar del mazo y colocarlo
-    for _ in range(pois_a_aniadir):
-        # Verificar si el mazo está vacío
-        if not model.mazo_pois:
-            print("El mazo de POIs está vacío. No se pueden añadir más POIs.")
-            break
-        
-        # Sacar un POI del mazo (tipo 'v' o 'f')
-        tipo_poi = model.mazo_pois.pop(0)
-        print(f"Sacando POI del mazo: {tipo_poi}. Quedan {len(model.mazo_pois)} en el mazo.")
-        
-        # Buscar una celda válida para colocar el POI
-        colocado = False
-        intentos = 0
-        max_intentos = 100  # Límite para evitar bucles infinitos
-        
-        while not colocado and intentos < max_intentos:
-            intentos += 1
+        # 3. Inicializar el mazo de POIs si no existe
+        if not hasattr(model, "mazo_pois"):
+            # Contar cuántas víctimas y falsas alarmas hay ya en el escenario inicial
+            num_victimas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "v")
+            num_falsas_iniciales = sum(1 for poi in model.scenario["pois"] if poi[2] == "f")
             
-            # Generar coordenadas aleatorias (fuera del perímetro)
-            filas, columnas = model.grid_state.shape
-            fila = model.random.randint(1, filas - 2)  # De 1 a filas-2
-            columna = model.random.randint(1, columnas - 2)  # De 1 a columnas-2
+            # Crear el mazo con los POIs restantes (10 - X víctimas, 5 - Y falsas alarmas)
+            victimas_restantes = 10 - num_victimas_iniciales
+            falsas_restantes = 5 - num_falsas_iniciales
             
-            # Verificar si la celda es válida (no tiene ya un POI)
-            if model.grid_state[fila, columna]["poi"] is None:
-                # Si hay fuego o humo, eliminarlo
-                if model.grid_state[fila, columna]["fire"]:
-                    model.grid_state[fila, columna]["fire"] = False
-                    # Eliminar de la lista de fuegos si estaba allí
-                    if (fila, columna) in model.scenario["fires"]:
-                        model.scenario["fires"].remove((fila, columna))
-                    print(f"Se eliminó fuego en ({columna},{fila}) para colocar un POI.")
-                
-                if model.grid_state[fila, columna]["smoke"]:
-                    model.grid_state[fila, columna]["smoke"] = False
-                    print(f"Se eliminó humo en ({columna},{fila}) para colocar un POI.")
-                
-                # Colocar el POI
-                model.grid_state[fila, columna]["poi"] = tipo_poi
-                model.scenario["pois"].append((fila, columna, tipo_poi))
-                
-                print(f"Nuevo POI tipo '{tipo_poi}' colocado en ({columna},{fila})")
-                
-                # Verificar si hay bomberos en la celda para revelar el POI inmediatamente
-                cell_contents = model.grid.get_cell_list_contents((columna, fila))
-                firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
-                
-                if firefighters:
-                    print(f"¡Un bombero ya está en esta celda! POI revelado inmediatamente.")
-                    if tipo_poi == "f":  # Falsa alarma
-                        model.grid_state[fila, columna]["poi"] = None
-                        model.scenario["pois"].remove((fila, columna, tipo_poi))
-                        print(f"Era una falsa alarma. POI removido.")
-                    else:  # Víctima
-                        print(f"Es una víctima. El bombero puede recogerla en su próximo turno.")
-                
-                colocado = True
+            # Asegurarse de que no haya números negativos
+            victimas_restantes = max(0, victimas_restantes)
+            falsas_restantes = max(0, falsas_restantes)
             
-            # Si no se pudo colocar, se intentará otra celda
-        
-        if not colocado:
-            print(f"No se pudo encontrar una celda válida para colocar el POI después de {max_intentos} intentos.")
-            # Devolver la carta al mazo y barajar
-            model.mazo_pois.append(tipo_poi)
+            # Crear el mazo inicial
+            model.mazo_pois = ["v"] * victimas_restantes + ["f"] * falsas_restantes
+            
+            # Barajar el mazo
             model.random.shuffle(model.mazo_pois)
-    
-    print(f"Reposición de POIs completada. Total de POIs en el tablero: {len(model.scenario['pois'])}")
-    print(f"POIs restantes en el mazo: {len(model.mazo_pois)}")
-
-def check_end_conditions(model):
-    """
-    Verifica si se han cumplido las condiciones de victoria o derrota
-    
-    Returns:
-        bool: True si el juego ha terminado, False si continúa
-    """
-    # 1. Verificar condición de victoria (7+ víctimas rescatadas)
-    if model.victims_rescued >= 7:
-        print("\n🎖️🎖️🎖️ ¡VICTORIA! 🎖️🎖️🎖️")
-        print(f"El equipo de bomberos ha rescatado {model.victims_rescued} víctimas.")
-        print("La operación de rescate ha sido un éxito rotundo.")
-        model.simulation_over = True
-        return True
+            
+            print(f"Mazo de POIs inicializado con {victimas_restantes} víctimas y {falsas_restantes} falsas alarmas.")
+            print(f"Total en el mazo: {len(model.mazo_pois)} POIs")
         
-    # 2. Verificar derrota por víctimas perdidas (4+ víctimas)
-    elif model.victims_lost >= 4:
-        print("\n💀💀💀 DERROTA: Demasiadas víctimas perdidas 💀💀💀")
-        print(f"Se han perdido {model.victims_lost} víctimas en el incendio.")
-        print("La operación de rescate ha fracasado.")
-        model.simulation_over = True
-        return True
+        # 4. Para cada POI a añadir, seleccionar del mazo y colocarlo
+        for _ in range(pois_a_aniadir):
+            # Verificar si el mazo está vacío
+            if not model.mazo_pois:
+                print("El mazo de POIs está vacío. No se pueden añadir más POIs.")
+                break
+            
+            # Sacar un POI del mazo (tipo 'v' o 'f')
+            tipo_poi = model.mazo_pois.pop(0)
+            print(f"Sacando POI del mazo: {tipo_poi}. Quedan {len(model.mazo_pois)} en el mazo.")
+            
+            # Buscar una celda válida para colocar el POI
+            colocado = False
+            intentos = 0
+            max_intentos = 100  # Límite para evitar bucles infinitos
+            
+            while not colocado and intentos < max_intentos:
+                intentos += 1
+                
+                # Generar coordenadas aleatorias (fuera del perímetro)
+                filas, columnas = model.grid_state.shape
+                fila = model.random.randint(1, filas - 2)  # De 1 a filas-2
+                columna = model.random.randint(1, columnas - 2)  # De 1 a columnas-2
+                
+                # Verificar si la celda es válida (no tiene ya un POI)
+                if model.grid_state[fila, columna]["poi"] is None:
+                    # Si hay fuego o humo, eliminarlo
+                    if model.grid_state[fila, columna]["fire"]:
+                        model.grid_state[fila, columna]["fire"] = False
+                        # Eliminar de la lista de fuegos si estaba allí
+                        if (fila, columna) in model.scenario["fires"]:
+                            model.scenario["fires"].remove((fila, columna))
+                        print(f"Se eliminó fuego en ({columna},{fila}) para colocar un POI.")
+                    
+                    if model.grid_state[fila, columna]["smoke"]:
+                        model.grid_state[fila, columna]["smoke"] = False
+                        print(f"Se eliminó humo en ({columna},{fila}) para colocar un POI.")
+                    
+                    # Colocar el POI
+                    model.grid_state[fila, columna]["poi"] = tipo_poi
+                    model.scenario["pois"].append((fila, columna, tipo_poi))
+                    
+                    print(f"Nuevo POI tipo '{tipo_poi}' colocado en ({columna},{fila})")
+                    
+                    # Verificar si hay bomberos en la celda para revelar el POI inmediatamente
+                    cell_contents = model.grid.get_cell_list_contents((columna, fila))
+                    firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
+                    
+                    if firefighters:
+                        print(f"¡Un bombero ya está en esta celda! POI revelado inmediatamente.")
+                        if tipo_poi == "f":  # Falsa alarma
+                            model.grid_state[fila, columna]["poi"] = None
+                            model.scenario["pois"].remove((fila, columna, tipo_poi))
+                            print(f"Era una falsa alarma. POI removido.")
+                        else:  # Víctima
+                            print(f"Es una víctima. El bombero puede recogerla en su próximo turno.")
+                    
+                    colocado = True
+                
+                # Si no se pudo colocar, se intentará otra celda
+            
+            if not colocado:
+                print(f"No se pudo encontrar una celda válida para colocar el POI después de {max_intentos} intentos.")
+                # Devolver la carta al mazo y barajar
+                model.mazo_pois.append(tipo_poi)
+                model.random.shuffle(model.mazo_pois)
         
-    # 3. Verificar derrota por colapso estructural (24+ daños)
-    elif model.damage_counters >= 24:
-        print("\n🏚️🏚️🏚️ DERROTA: Colapso estructural 🏚️🏚️🏚️")
-        print(f"El edificio ha acumulado {model.damage_counters} puntos de daño y se ha derrumbado.")
-        print("Todos los bomberos y víctimas restantes han quedado atrapados.")
-        model.simulation_over = True
-        return True
+        print(f"Reposición de POIs completada. Total de POIs en el tablero: {len(model.scenario['pois'])}")
+        print(f"POIs restantes en el mazo: {len(model.mazo_pois)}")
+
+    @staticmethod
+    def check_end_conditions(model):
+        """
+        Verifica si se han cumplido las condiciones de victoria o derrota
         
-    # Si no se cumple ninguna condición, el juego continúa
-    return False
-
-def visualizar_simulacion(model):
-    """Visualiza el estado actual de la simulación, incluyendo bomberos"""
-    # Reutilizamos la visualización base de la grilla
-    visualizar_grid_con_perimetro_y_puertas(
-        model.scenario["grid_walls"], 
-        compute_door_positions(model.scenario["doors"]), 
-        model.scenario["entries"],
-        model.scenario["fires"],   
-        model.scenario["pois"],
-        model  
-    )
-
+        Returns:
+            bool: True si el juego ha terminado, False si continúa
+        """
+        # 1. Verificar condición de victoria (7+ víctimas rescatadas)
+        if model.victims_rescued >= 7:
+            print("\n🎖️🎖️🎖️ ¡VICTORIA! 🎖️🎖️🎖️")
+            print(f"El equipo de bomberos ha rescatado {model.victims_rescued} víctimas.")
+            print("La operación de rescate ha sido un éxito rotundo.")
+            model.simulation_over = True
+            return True
+            
+        # 2. Verificar derrota por víctimas perdidas (4+ víctimas)
+        elif model.victims_lost >= 4:
+            print("\n💀💀💀 DERROTA: Demasiadas víctimas perdidas 💀💀💀")
+            print(f"Se han perdido {model.victims_lost} víctimas en el incendio.")
+            print("La operación de rescate ha fracasado.")
+            model.simulation_over = True
+            return True
+            
+        # 3. Verificar derrota por colapso estructural (24+ daños)
+        elif model.damage_counters >= 24:
+            print("\n🏚️🏚️🏚️ DERROTA: Colapso estructural 🏚️🏚️🏚️")
+            print(f"El edificio ha acumulado {model.damage_counters} puntos de daño y se ha derrumbado.")
+            print("Todos los bomberos y víctimas restantes han quedado atrapados.")
+            model.simulation_over = True
+            return True
+            
+        # Si no se cumple ninguna condición, el juego continúa
+        return False
 
 class FirefighterAgent(Agent):
     """Agente bombero que rescata víctimas del incendio"""
@@ -1480,7 +1133,7 @@ class FirefighterAgent(Agent):
                     puerta_pos = (y, x, 3)
                 
                 if puerta_pos:
-                    door_positions = compute_door_positions(self.model.scenario["doors"])
+                    door_positions = ScenarioParser.compute_door_positions(self.model.scenario["doors"])
                     if puerta_pos in door_positions and self.ap >= 1:
                         acciones_posibles.append(f"puerta_{i}")
             
@@ -1656,7 +1309,7 @@ class FirefighterAgent(Agent):
             self.model.victims_rescued += 1  # Incrementar contador de víctimas rescatadas
             
             # Nuevo: Llamar a replenish_pois para reponer inmediatamente
-            replenish_pois(self.model)
+            GameMechanics.replenish_pois(self.model)
             
             return True
         else:
@@ -1697,7 +1350,7 @@ class FirefighterAgent(Agent):
                     print(f"[Bombero {self.unique_id}] ACCIÓN: Encontró una falsa alarma en ({nueva_x},{nueva_y})")
                     
                     # Nuevo: Reponer POI tras descubrir falsa alarma
-                    replenish_pois(self.model)
+                    GameMechanics.replenish_pois(self.model)
             
             return True
 
@@ -1715,13 +1368,13 @@ class FireRescueModel(Model):
         
         # Almacenar el escenario y el estado de la grilla
         self.scenario = scenario
-        self.grid_state = build_grid_state(scenario)
+        self.grid_state = ScenarioParser.build_grid_state(scenario)
         
         # NUEVO: Registros para nuevas mecánicas
         self.door_states = {}  # Diccionario para estado de puertas (abiertas/cerradas)
         
         #  Inicializar todas las puertas como cerradas
-        door_positions = compute_door_positions(scenario["doors"])
+        door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
         for door_pos in door_positions:
             self.door_states[door_pos] = "cerrada"
         
@@ -1829,14 +1482,14 @@ class FireRescueModel(Model):
         # TERCERO: Ejecutar la lógica del juego
         # Propagar el fuego después de que los agentes hayan actuado
         print("\n=== PROPAGACIÓN DEL FUEGO ===")
-        advance_fire(self)
+        GameMechanics.advance_fire(self)
         
         # Verificar si hay bomberos en celdas con fuego
         print("\n=== VERIFICACIÓN DE BOMBEROS EN FUEGO ===")
-        check_firefighters_in_fire(self)
+        GameMechanics.check_firefighters_in_fire(self)
         
         # Reponer POIs al final del turno
-        replenish_pois(self)
+        GameMechanics.replenish_pois(self)
         
         # Restaurar AP de todos los bomberos al final del turno
         for agent in self.schedule.agents:
@@ -1844,7 +1497,7 @@ class FireRescueModel(Model):
             agent.ap = min(agent.ap + 4, agent.max_ap)
         
         # Verificar condiciones de fin de juego
-        check_end_conditions(self)
+        GameMechanics.check_end_conditions(self)
         
         # CUARTO: Imprimir resumen del turno
         print("\n==== Fin del turno ====")
@@ -1856,9 +1509,9 @@ class FireRescueModel(Model):
         # QUINTO: Al final, mostrar UNA SOLA visualización del estado actual
         print("\n=== ESTADO ACTUALIZADO DE LA SIMULACIÓN ===")
         plt.figure(figsize=(12, 10))
-        visualizar_grid_con_perimetro_y_puertas(
+        Visualization.visualizar_grid_con_perimetro_y_puertas(
             self.scenario["grid_walls"], 
-            compute_door_positions(self.scenario["doors"]), 
+            ScenarioParser.compute_door_positions(self.scenario["doors"]), 
             self.scenario["entries"],
             self.scenario["fires"],   
             self.scenario["pois"],
@@ -1866,16 +1519,326 @@ class FireRescueModel(Model):
         )
         plt.show()
     
+class Visualization:
+    """Clase que encapsula todas las funcionalidades de visualización"""
+    
+    @staticmethod
+    def visualizar_grid_con_perimetro_y_puertas(grid, door_positions, entries, fires=None, pois=None, model=None):
+        """Visualiza el tablero de juego con todos sus elementos"""
+        filas, columnas = grid.shape[:2]
+        fig, ax = plt.subplots(figsize=(12, 10))
+        ax.set_facecolor('#d9f2d9')  # Fondo verde claro
+
+        # Determinar la dirección de cada entrada (hacia el borde más cercano)
+        entry_positions = []
+        for y, x in entries:
+            # Determinar qué borde está más cerca
+            dist_norte = y
+            dist_sur = filas - 1 - y
+            dist_oeste = x
+            dist_este = columnas - 1 - x
+            
+            # La dirección con la distancia mínima es la más cercana al borde
+            min_dist = min(dist_norte, dist_sur, dist_oeste, dist_este)
+            
+            if min_dist == dist_norte:
+                entry_positions.append((y, x, 0))  # Norte
+            elif min_dist == dist_este:
+                entry_positions.append((y, x, 1))  # Este
+            elif min_dist == dist_sur:
+                entry_positions.append((y, x, 2))  # Sur
+            else:  # min_dist == dist_oeste
+                entry_positions.append((y, x, 3))  # Oeste
+
+        for y in range(filas):
+            for x in range(columnas):
+                # Verificar si hay fuego o humo en esta celda
+                is_fire = (y, x) in fires if fires else False
+                is_smoke = False
+                
+                if model is not None:
+                    # Usar grid_state para detectar humo
+                    is_smoke = model.grid_state[y, x]["smoke"]
+                
+                # Determinar el color de fondo según la celda
+                if is_fire:
+                    color = '#ffcccc'  # Color rojizo claro para fuego
+                elif is_smoke:
+                    color = '#e6e6e6'  # Color gris claro para humo
+                elif x == 0 or x == columnas-1 or y == 0 or y == filas-1:
+                    color = '#b3e6b3'  # Color verde claro para perímetro
+                else:
+                    color = '#e6f7ff'  # Color azul claro para celdas jugables
+                    
+                rect = patches.Rectangle((x, filas - y - 1), 1, 1, linewidth=0, facecolor=color)
+                ax.add_patch(rect)
+
+                # Dibujar líneas de cuadrícula claras
+                ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color='gray', linewidth=0.3)
+                ax.plot([x, x+1], [filas - y, filas - y], color='gray', linewidth=0.3)
+                ax.plot([x, x], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
+                ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='gray', linewidth=0.3)
+
+                # Dibujar símbolos para fuego si corresponde
+                if is_fire:
+                    ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=15, 
+                            markerfacecolor='#ff6600', markeredgecolor='red', alpha=0.7)
+                    ax.plot(x + 0.5, filas - y - 0.5, '*', markersize=10, 
+                            markerfacecolor='yellow', markeredgecolor='yellow')
+                
+                # Dibujar símbolos para humo si corresponde
+                elif is_smoke:
+                    ax.plot(x + 0.5, filas - y - 0.5, 's', markersize=14, 
+                            markerfacecolor='#a6a6a6', markeredgecolor='#808080', alpha=0.6)
+                    ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=8, 
+                            markerfacecolor='#d3d3d3', markeredgecolor='#d3d3d3', alpha=0.8)
+
+                # Verificar si hay un POI en esta posición
+                if pois:
+                    for poi_y, poi_x, poi_type in pois:
+                        if poi_y == y and poi_x == x:
+                            if poi_type == 'v':  # Víctima
+                                ax.plot(x + 0.5, filas - y - 0.5, 'D', markersize=12, 
+                                        markerfacecolor='#00cc66', markeredgecolor='black', zorder=10)
+                            elif poi_type == 'f':  # Falsa alarma
+                                ax.plot(x + 0.5, filas - y - 0.5, 'X', markersize=12, 
+                                        markerfacecolor='#cccccc', markeredgecolor='black', zorder=10)
+                                
+                # Determinar si es una celda de perímetro
+                es_perimetro = (x == 0 or x == columnas-1 or y == 0 or y == filas-1)
+
+                if es_perimetro:
+                    # Solo dibujamos los muros del perímetro exterior
+                    if y == 0:
+                        ax.plot([x, x+1], [filas - y, filas - y], color='black', linewidth=2.5)
+                    if y == filas-1:
+                        ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color='black', linewidth=2.5)
+                    if x == 0:
+                        ax.plot([x, x], [filas - y - 1, filas - y], color='black', linewidth=2.5)
+                    if x == columnas-1:
+                        ax.plot([x+1, x+1], [filas - y - 1, filas - y], color='black', linewidth=2.5)
+                else:
+                    # CAMBIO: Usar grid_state en lugar de grid para los muros
+                    if model is not None:
+                        muro_n, muro_e, muro_s, muro_o = model.grid_state[y, x]["walls"]
+                    else:
+                        muro_n, muro_e, muro_s, muro_o = grid[y, x]
+
+                    # Comprobar si hay una puerta o entrada en cada dirección
+                    puerta_n = (y, x, 0) in door_positions
+                    puerta_e = (y, x, 1) in door_positions
+                    puerta_s = (y, x, 2) in door_positions
+                    puerta_o = (y, x, 3) in door_positions
+                    
+                    entrada_n = (y, x, 0) in entry_positions
+                    entrada_e = (y, x, 1) in entry_positions
+                    entrada_s = (y, x, 2) in entry_positions
+                    entrada_o = (y, x, 3) in entry_positions
+
+                    # Dibujar muros, puertas o entradas según corresponda
+                    if entrada_n:
+                        # Dibujar entrada norte
+                        ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color='white', linewidth=4.0)
+                    elif puerta_n:
+                        # Dibujar puerta norte según su estado
+                        puerta_color = 'brown'
+                        puerta_abierta = False
+                        if model is not None and (y, x, 0) in model.door_states:
+                            puerta_abierta = model.door_states[(y, x, 0)] == "abierta"
+                            puerta_color = 'green' if puerta_abierta else 'brown'
+                        else:
+                            # Si no está en door_states pero es una puerta, se considera destruida
+                            if model is not None:
+                                puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
+                        ax.plot([x+0.25, x+0.75], [filas - y, filas - y], color=puerta_color, linewidth=2.5)
+                    elif muro_n:
+                        # Dibujar muro norte
+                        muro_color = 'black'
+                        if model is not None and (y, x, 0) in model.wall_damage:
+                            # Si el muro tiene daño, cambiar color
+                            if model.wall_damage[(y, x, 0)] == 1:
+                                muro_color = 'orange'  # Muro dañado una vez
+                            # Si tiene 2 daños, no se dibuja (está destruido)
+                            elif model.wall_damage[(y, x, 0)] >= 2:
+                                muro_color = None  # No dibujar
+                        
+                        if muro_color:
+                            ax.plot([x, x+1], [filas - y, filas - y], color=muro_color, linewidth=2.5)
+                    
+                    # Para las puertas en dirección Este:
+                    if entrada_e:
+                        # Dibujar entrada este
+                        ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
+                    elif puerta_e:
+                        # Dibujar puerta este según su estado
+                        puerta_color = 'brown'
+                        if model is not None and (y, x, 1) in model.door_states:
+                            puerta_abierta = model.door_states[(y, x, 1)] == "abierta"
+                            puerta_color = 'green' if puerta_abierta else 'brown'
+                        else:
+                            # Si no está en door_states pero es una puerta, se considera destruida
+                            if model is not None:
+                                puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
+                        ax.plot([x+1, x+1], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
+                    elif muro_e:
+                        # Dibujar muro este
+                        muro_color = 'black'
+                        if model is not None and (y, x, 1) in model.wall_damage:
+                            # Si el muro tiene daño, cambiar color
+                            if model.wall_damage[(y, x, 1)] == 1:
+                                muro_color = 'orange'
+                            elif model.wall_damage[(y, x, 1)] >= 2:
+                                muro_color = None
+                        
+                        if muro_color:
+                            ax.plot([x+1, x+1], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
+                    
+                    # Para las puertas en dirección Sur:
+                    if entrada_s:
+                        # Dibujar entrada sur
+                        ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color='white', linewidth=4.0)
+                    elif puerta_s:
+                        # Dibujar puerta sur según su estado
+                        puerta_color = 'brown'
+                        if model is not None and (y, x, 2) in model.door_states:
+                            puerta_abierta = model.door_states[(y, x, 2)] == "abierta"
+                            puerta_color = 'green' if puerta_abierta else 'brown'
+                        else:
+                            # Si no está en door_states pero es una puerta, se considera destruida
+                            if model is not None:
+                                puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
+                        ax.plot([x+0.25, x+0.75], [filas - y - 1, filas - y - 1], color=puerta_color, linewidth=2.5)
+                    elif muro_s:
+                        # Dibujar muro sur
+                        muro_color = 'black'
+                        if model is not None and (y, x, 2) in model.wall_damage:
+                            # Si el muro tiene daño, cambiar color
+                            if model.wall_damage[(y, x, 2)] == 1:
+                                muro_color = 'orange'
+                            elif model.wall_damage[(y, x, 2)] >= 2:
+                                muro_color = None
+                        
+                        if muro_color:
+                            ax.plot([x, x+1], [filas - y - 1, filas - y - 1], color=muro_color, linewidth=2.5)
+                    
+                    if entrada_o:
+                        # Dibujar entrada oeste
+                        ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color='white', linewidth=4.0)
+                    elif puerta_o:
+                        # Dibujar puerta oeste según su estado
+                        puerta_color = 'brown'
+                        if model is not None and (y, x, 3) in model.door_states:
+                            puerta_abierta = model.door_states[(y, x, 3)] == "abierta"
+                            puerta_color = 'green' if puerta_abierta else 'brown'
+                        else:
+                            # Si no está en door_states pero es una puerta, se considera destruida
+                            if model is not None:
+                                puerta_color = 'lightgreen'  # Color distintivo para puertas destruidas
+                        ax.plot([x, x], [filas - y - 0.75, filas - y - 0.25], color=puerta_color, linewidth=2.5)
+                    elif muro_o:
+                        # Dibujar muro oeste
+                        muro_color = 'black'
+                        if model is not None and (y, x, 3) in model.wall_damage:
+                            # Si el muro tiene daño, cambiar color
+                            if model.wall_damage[(y, x, 3)] == 1:
+                                muro_color = 'orange'
+                            elif model.wall_damage[(y, x, 3)] >= 2:
+                                muro_color = None
+                        
+                        if muro_color:
+                            ax.plot([x, x], [filas - y - 1, filas - y], color=muro_color, linewidth=2.5)
+                        
+        # Agregar elementos a la leyenda
+        entrada_line = plt.Line2D([0], [0], color='white', linewidth=4.0, label='Entrada bomberos')
+        perimetro_patch = patches.Patch(color='#b3e6b3', label='Perímetro')
+        jugable_patch = patches.Patch(color='#e6f7ff', label='Celda jugable')
+        puerta_line = plt.Line2D([0], [0], color='brown', linewidth=2.5, label='Puerta')
+        muro_line = plt.Line2D([0], [0], color='black', linewidth=2.5, label='Muro')
+        
+        # Nuevos elementos para la leyenda
+        fire_marker = plt.Line2D([0], [0], marker='o', markersize=15, markerfacecolor='#ff6600', 
+                                markeredgecolor='red', alpha=0.7, linestyle='', label='Fuego')
+        smoke_marker = plt.Line2D([0], [0], marker='s', markersize=14, markerfacecolor='#a6a6a6', 
+                                markeredgecolor='#808080', alpha=0.6, linestyle='', label='Humo')
+        victim_marker = plt.Line2D([0], [0], marker='D', markersize=12, markerfacecolor='#00cc66', 
+                                markeredgecolor='black', linestyle='', label='Víctima (POI)')
+        false_alarm_marker = plt.Line2D([0], [0], marker='X', markersize=12, markerfacecolor='#cccccc', 
+                                markeredgecolor='black', linestyle='', label='Falsa alarma (POI)')
+        
+        ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, puerta_line, 
+                        fire_marker, smoke_marker, victim_marker, false_alarm_marker], 
+                loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
+
+        if model is not None:
+            # Agregar bomberos a la leyenda
+            bombero_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
+                                      markerfacecolor='blue', markeredgecolor='navy', 
+                                      alpha=0.7, linestyle='', label='Bombero')
+            
+            # Actualizar la leyenda para incluir bomberos
+            ax.legend(handles=[perimetro_patch, jugable_patch, entrada_line, muro_line, 
+                              puerta_line, fire_marker, victim_marker, false_alarm_marker,
+                              bombero_marker], 
+                      loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
+            
+            # Configurar límites para ver TODA el área, incluido el exterior
+            ax.set_xlim(-1, columnas+1) 
+            ax.set_ylim(-1, filas+1)
+            
+            # Dibujar bomberos como círculos azules con número de identificación
+            for agent in model.schedule.agents:
+                x, y = agent.pos  # Mesa usa (x=columna, y=fila)
+                # Dibujamos bomberos con coordenadas ajustadas
+                ax.plot(x + 0.5, filas - y - 0.5, 'o', markersize=24, 
+                        markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
+                ax.text(x + 0.5, filas - y - 0.5, str(agent.unique_id), color='white', 
+                        fontsize=12, ha='center', va='center', zorder=26)
+            
+            # Actualizar título si hay un modelo
+            ax.set_title(f"Simulación - Paso {model.step_count}")
+        
+        # Aspecto visual 
+        ax.set_xticks(range(columnas))
+        ax.set_yticks(range(filas))
+        ax.set_xticklabels(range(columnas))
+        ax.set_yticklabels(range(filas - 1, -1, -1))
+        ax.set_aspect('equal')
+        
+        # IMPORTANTE: Actualizar el título para reflejar el paso actual
+        if model is not None:
+            ax.set_title(f"Simulación - Paso {model.step_count}")
+        else:
+            ax.set_title("Mapa del Escenario 6×8 con Perímetro (8×10), Muros y Puertas")
+        
+        ax.grid(False)
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def visualizar_simulacion(model):
+        """Visualiza el estado actual de la simulación, incluyendo bomberos"""
+        # Reutilizamos la visualización base de la grilla
+        fig, ax = Visualization.visualizar_grid_con_perimetro_y_puertas(
+            model.scenario["grid_walls"], 
+            ScenarioParser.compute_door_positions(model.scenario["doors"]), 
+            model.scenario["entries"],
+            model.scenario["fires"],   
+            model.scenario["pois"],
+            model  
+        )
+        plt.show()
+    
+     
 
 
 # Parsear el escenario completo
-scenario = parse_scenario(scenario_content)
+scenario = ScenarioParser.parse_scenario(scenario_content)
 
 # Calcular posiciones de puertas para visualización
-door_positions = compute_door_positions(scenario["doors"])
+door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
 
 # Mostrar mapa final con puertas
-visualizar_grid_con_perimetro_y_puertas(
+Visualization.visualizar_grid_con_perimetro_y_puertas(
     scenario["grid_walls"], 
     door_positions, 
     scenario["entries"],
@@ -1885,10 +1848,8 @@ visualizar_grid_con_perimetro_y_puertas(
 
 # Construir el estado de la grilla
 print("\n=== CONSTRUYENDO ESTADO DE LA GRILLA ===")
-grid_state = build_grid_state(scenario)
+grid_state = ScenarioParser.build_grid_state(scenario)
 
-# Verificar que esté correctamente inicializado
-verify_grid_state(grid_state)
 
 # Información adicional
 print("\nResumen del escenario y estado de grilla:")
@@ -1910,7 +1871,7 @@ print("\n--- Estado inicial ---")
 
 # Solo mostrar la visualización inicial
 plt.figure(figsize=(12, 10))
-visualizar_grid_con_perimetro_y_puertas(
+Visualization.visualizar_grid_con_perimetro_y_puertas(
     scenario["grid_walls"], 
     door_positions, 
     scenario["entries"],
@@ -1918,8 +1879,6 @@ visualizar_grid_con_perimetro_y_puertas(
     scenario["pois"],
     model
 )
-plt.title("Estado inicial")
-plt.tight_layout()
 plt.show()
 
 # Simulación continua hasta que termine por victoria o derrota
