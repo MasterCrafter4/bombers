@@ -242,8 +242,6 @@ class DirectionHelper:
     # Direction names for messages
     DIRECTION_NAMES = ["north", "east", "south", "west"]
     
-    # We use a static method because it doesn't require instance state
-    # also no need to use self, since there are no instance attributes
     @staticmethod
     def get_adjacent_position(x, y, direction):
         """Gets the adjacent position in the specified direction"""
@@ -1465,48 +1463,50 @@ class FireRescueModel(Model):
         if self.simulation_over:
             print("The simulation has ended. No more steps can be executed.")
             return
-                
+                    
         self.step_count += 1
-        
-        # FIRST: Show information about current step
+
+        # FIRST: Display step info
         if self.stage == 0:
             print(f"\n--- Step {self.step_count}: Firefighters entering the board ---")
             self.stage = 1
-            # Firefighters will move to their entries in this step
         else:
             print(f"\n--- Step {self.step_count} ---")
-                    
-        # SECOND: Execute step for each agent
+
+        # SECOND: Execute each agent's step
         self.schedule.step()
-        
-        # THIRD: Execute game logic
-        # Propagate fire after agents have acted
-        print("\n=== FIRE PROPAGATION ===")
-        GameMechanics.advance_fire(self)
-        
-        # Check if there are firefighters in cells with fire
-        print("\n=== CHECKING FIREFIGHTERS IN FIRE ===")
-        GameMechanics.check_firefighters_in_fire(self)
-        
-        # Replenish POIs at the end of the turn
+
+        # THIRD: Propagate fire AFTER all agents have acted (pero no en el primer turno)
+        if self.step_count > 1:  # No propagar fuego en el step 1
+            print("\n=== FIRE PROPAGATION ===")
+            GameMechanics.advance_fire(self)
+
+            # FOURTH: Apply secondary effects (e.g., firefighters in fire)
+            print("\n=== CHECKING FIREFIGHTERS IN FIRE ===")
+            GameMechanics.check_firefighters_in_fire(self)
+        else:
+            print("\n=== FIRE PROPAGATION SKIPPED (FIRST TURN) ===")
+            print("Fire propagation will start from the next turn")
+
+        # FIFTH: Replenish POIs at the end of the turn
         GameMechanics.replenish_pois(self)
-        
-        # Restore AP for all firefighters at the end of the turn
+
+        # SIXTH: Restore AP for all firefighters
         for agent in self.schedule.agents:
             # Accumulate AP without exceeding maximum
             agent.ap = min(agent.ap + 4, agent.max_ap)
-        
-        # Check end game conditions
+
+        # SEVENTH: Check game end conditions
         GameMechanics.check_end_conditions(self)
-        
-        # FOURTH: Print turn summary
+
+        # EIGHTH: Print turn summary
         print("\n==== End of turn ====")
         print(f"Rescued victims: {self.victims_rescued}")
         print(f"Lost victims: {self.victims_lost}")
         print(f"Accumulated wall damage: {self.damage_counters}")
         print(f"POIs on board: {len(self.scenario['pois'])}")
-        
-        # FIFTH: At the end, show ONE visualization of current state
+
+        # NINTH: Visualize updated game state
         print("\n=== UPDATED SIMULATION STATE ===")
         plt.figure(figsize=(12, 10))
         Visualization.visualize_grid_with_perimeter_and_doors(
@@ -1518,6 +1518,7 @@ class FireRescueModel(Model):
             self
         )
         plt.show()
+
 
 class Visualization:
     """Class that encapsulates all visualization functionalities"""
