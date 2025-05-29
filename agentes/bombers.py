@@ -661,6 +661,7 @@ class GameMechanics:
                             damage = model.wall_damage[wall_key]
                         else:
                             damage = 1
+
                             
                         if damage >= 2:
                             print(f"⚡ Shockwave destroyed a wall between ({x-dx},{y-dy}) and ({x},{y})")
@@ -1475,7 +1476,6 @@ class FireRescueModel(Model):
 
         # SECOND: Execute each agent's step
         self.schedule.step()
-
         # THIRD: Propagate fire AFTER all agents have acted (pero no en el primer turno)
         if self.step_count > 1:  # No propagar fuego en el step 1
             print("\n=== FIRE PROPAGATION ===")
