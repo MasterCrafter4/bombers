@@ -1751,8 +1751,10 @@ plt.show()
 
 # Continuous simulation until victory or defeat
 step = 1
-while not model.simulation_over:
-    model.step()  # Execute step (includes visualization at the end)
+while not model.simulation_over and step < 50:
+    print(f"\n--- Paso {step} ---")
+    model.step()
+    Visualization.visualize_simulation(model)  # Usa la función existente
     step += 1
 
 print("\n=== SIMULATION FINISHED ===")
