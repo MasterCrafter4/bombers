@@ -1,0 +1,28 @@
+{
+  "frame": 38,
+  "turn": 2,
+  "action": {
+    "firefighter_id": 2,
+    "type": "pickup_poi",
+    "ap_before": 7,
+    "ap_after": 5,
+    "target": [
+      8,
+      5
+    ],
+    "poi_type": "v"
+  },
+  "firefighters": [
+    {
+      "id": 2,
+      "x": 8,
+      "y": 5,
+      "ap": 5,
+      "carrying": true
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}
