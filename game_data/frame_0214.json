@@ -4,23 +4,23 @@
   "action": {
     "firefighter_id": 5,
     "type": "move",
-    "ap_before": 4,
-    "ap_after": 3,
+    "ap_before": 3,
+    "ap_after": 1,
     "from": [
-      9,
+      8,
       0
     ],
     "to": [
-      9,
+      8,
       1
     ]
   },
   "firefighters": [
     {
       "id": 5,
-      "x": 9,
+      "x": 8,
       "y": 1,
-      "ap": 3,
+      "ap": 1,
       "carrying": false
     }
   ],

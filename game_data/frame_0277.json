@@ -1,14 +1,31 @@
 {
   "frame": 277,
-  "turn": 16,
+  "turn": 17,
   "action": {
-    "type": "game_over",
-    "result": "defeat_collapse",
-    "message": "Building collapsed with 24 damage points."
+    "firefighter_id": 5,
+    "type": "move",
+    "ap_before": 4,
+    "ap_after": 3,
+    "from": [
+      9,
+      0
+    ],
+    "to": [
+      9,
+      1
+    ]
   },
-  "summary": {
-    "rescued": 1,
-    "lost": 1,
-    "damage": 24
-  }
+  "firefighters": [
+    {
+      "id": 5,
+      "x": 9,
+      "y": 1,
+      "ap": 3,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
 }

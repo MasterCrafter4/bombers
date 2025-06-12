@@ -1,27 +1,24 @@
 {
   "frame": 58,
-  "turn": 3,
+  "turn": 4,
   "action": {
-    "firefighter_id": 0,
-    "type": "move",
-    "ap_before": 1,
-    "ap_after": 0,
-    "from": [
-      6,
-      6
+    "firefighter_id": 3,
+    "type": "pickup_poi",
+    "ap_before": 5,
+    "ap_after": 3,
+    "target": [
+      7,
+      5
     ],
-    "to": [
-      5,
-      6
-    ]
+    "poi_type": "v"
   },
   "firefighters": [
     {
-      "id": 0,
-      "x": 5,
-      "y": 6,
-      "ap": 0,
-      "carrying": false
+      "id": 3,
+      "x": 7,
+      "y": 5,
+      "ap": 3,
+      "carrying": true
     }
   ],
   "grid_changes": [],

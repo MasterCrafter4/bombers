@@ -1,27 +1,23 @@
 {
   "frame": 237,
-  "turn": 14,
+  "turn": 15,
   "action": {
     "firefighter_id": 4,
-    "type": "move",
+    "type": "remove_smoke",
     "ap_before": 5,
-    "ap_after": 4,
-    "from": [
-      9,
-      3
-    ],
-    "to": [
-      8,
+    "ap_after": 3,
+    "target": [
+      7,
       3
     ]
   },
   "firefighters": [
     {
       "id": 4,
-      "x": 8,
+      "x": 7,
       "y": 3,
-      "ap": 4,
-      "carrying": false
+      "ap": 3,
+      "carrying": true
     }
   ],
   "grid_changes": [],

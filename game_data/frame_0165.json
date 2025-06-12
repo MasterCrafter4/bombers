@@ -7,19 +7,19 @@
     "ap_before": 4,
     "ap_after": 2,
     "from": [
-      9,
+      5,
       0
     ],
     "to": [
-      7,
-      4
+      5,
+      1
     ]
   },
   "firefighters": [
     {
       "id": 1,
-      "x": 7,
-      "y": 4,
+      "x": 5,
+      "y": 1,
       "ap": 2,
       "carrying": false
     }

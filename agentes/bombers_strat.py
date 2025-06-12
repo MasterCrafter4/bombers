@@ -837,8 +837,8 @@ class GameMechanics:
         
         pois_to_add = 3 - current_pois_count
         
-        # Initialize POI deck if needed
-        if not hasattr(model, "mazo_pois"):
+        # Initialize POI deck if needed or if it's empty
+        if not hasattr(model, "mazo_pois") or len(model.mazo_pois) == 0:
             initial_victims_count = sum(1 for poi in model.scenario["pois"] if poi[2] == "v")
             initial_false_alarms_count = sum(1 for poi in model.scenario["pois"] if poi[2] == "f")
             
@@ -849,55 +849,91 @@ class GameMechanics:
             model.random.shuffle(model.mazo_pois)
         
         # Add new POIs
+        pois_added = 0
         for _ in range(pois_to_add):
             if not model.mazo_pois:
                 break
             
             poi_type = model.mazo_pois.pop(0)
             
-            # Find valid cell
-            placed = False
-            attempts = 0
-            max_attempts = 100
+            # Get all valid cells first
+            valid_cells = []
+            rows, cols = model.grid_state.shape
             
-            while not placed and attempts < max_attempts:
-                attempts += 1
-                
-                # Generate random coordinates
-                rows, cols = model.grid_state.shape
-                row = model.random.randint(1, rows - 2)
-                col = model.random.randint(1, cols - 2)
-                
-                # Check if valid cell
-                if model.grid_state[row, col]["poi"] is None:
-                    # Remove fire/smoke if present
-                    if model.grid_state[row, col]["fire"]:
-                        model.grid_state[row, col]["fire"] = False
-                        if (row, col) in model.scenario["fires"]:
-                            model.scenario["fires"].remove((row, col))
+            for row in range(1, rows-1):
+                for col in range(1, cols-1):
+                    # Skip cells that already have POIs
+                    if model.grid_state[row, col]["poi"] is not None:
+                        continue
+                        
+                    # Skip cells with walls on all sides (unreachable)
+                    has_access = False
+                    for direction in range(4):
+                        if not DirectionHelper.has_wall(model, row, col, direction) or DirectionHelper.is_wall_destroyed(model, row, col, direction):
+                            has_access = True
+                            break
                     
-                    if model.grid_state[row, col]["smoke"]:
-                        model.grid_state[row, col]["smoke"] = False
+                    if not has_access:
+                        continue
                     
-                    # Place POI
-                    model.grid_state[row, col]["poi"] = poi_type
-                    model.scenario["pois"].append((row, col, poi_type))
-                    
-                    # Check if firefighter already present
-                    cell_contents = model.grid.get_cell_list_contents((col, row))
-                    firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
-                    
-                    if firefighters:
-                        if poi_type == "f":  # False alarm
-                            model.grid_state[row, col]["poi"] = None
-                            model.scenario["pois"].remove((row, col, poi_type))
-                    
-                    placed = True
+                    # Add to valid cells list
+                    valid_cells.append((row, col))
             
-            if not placed:
-                # Return card to deck and shuffle
+            # If no valid cells found
+            if not valid_cells:
                 model.mazo_pois.append(poi_type)
                 model.random.shuffle(model.mazo_pois)
+                continue
+                
+            # Shuffle the valid cells to add randomness
+            model.random.shuffle(valid_cells)
+            
+            # Try placing POI in a valid cell
+            placed = False
+            for row, col in valid_cells:
+                # Skip if another POI already exists
+                if model.grid_state[row, col]["poi"] is not None:
+                    continue
+                    
+                # Check for firefighter in cell
+                cell_contents = model.grid.get_cell_list_contents((col, row))
+                firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
+                
+                # If firefighter and false alarm, skip this cell
+                if firefighters and poi_type == "f":
+                    continue
+                
+                # Remove fire/smoke if present
+                if model.grid_state[row, col]["fire"]:
+                    model.grid_state[row, col]["fire"] = False
+                    if (row, col) in model.scenario["fires"]:
+                        model.scenario["fires"].remove((row, col))
+                
+                if model.grid_state[row, col]["smoke"]:
+                    model.grid_state[row, col]["smoke"] = False
+                
+                # Place POI
+                model.grid_state[row, col]["poi"] = poi_type
+                model.scenario["pois"].append((row, col, poi_type))
+                
+                # Handle immediate discovery by firefighter
+                if firefighters and poi_type == "v":
+                    for ff in firefighters:
+                        if not ff.carrying:
+                            ff.carrying = True
+                            model.grid_state[row, col]["poi"] = None
+                            model.scenario["pois"].remove((row, col, poi_type))
+                            break
+                
+                placed = True
+                pois_added += 1
+                break
+                
+            if not placed:
+                model.mazo_pois.append(poi_type)
+                model.random.shuffle(model.mazo_pois)
+        
+        return pois_added > 0
 
     @staticmethod
     def check_end_conditions(model):
@@ -1077,81 +1113,50 @@ class FirefighterAgent(Agent):
         targets = []
         current_pos = self.pos
         grid_height, grid_width = self.model.grid_state.shape[:2]
-        
-        # Si estamos cargando una víctima, MÁXIMA prioridad a buscar la salida más cercana
-        if self.carrying:
-            for entry in self.model.scenario["entries"]:
-                y, x = entry
-                path = self.pathfinder.find_path(current_pos, (x, y), avoid_fire=True)
-                if path:  # Si hay un camino válido
-                    return (x, y, 'exit'), path
-        
-        # Si no estamos cargando, priorizar víctimas cercanas
+
+        # Priorizar víctimas si no estamos cargando una
         if not self.carrying:
-            # Primero buscar víctimas adyacentes
-            x, y = current_pos
-            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
-                new_x, new_y = x + dx, y + dy
-                if (0 <= new_y < grid_height and 0 <= new_x < grid_width):
-                    if self.model.grid_state[new_y][new_x]["poi"] == "v":
-                        return (new_x, new_y, 'victim'), [(x,y), (new_x,new_y)]
-            
-            # Luego buscar víctimas alcanzables en todo el mapa
             for poi in self.model.scenario["pois"]:
                 y, x, poi_type = poi
-                if poi_type == 'v':
-                    path = self.pathfinder.find_path(current_pos, (x, y), avoid_fire=True)
+                if poi_type == 'v':  # Solo víctimas, no falsas alarmas
+                    path = self.pathfinder.find_path(current_pos, (x, y))
                     if path:  # Si hay un camino válido
                         targets.append((x, y, 'victim', len(path)))
-        
-        # Si no hay víctimas o llevamos una, priorizar control del fuego
+
+        # Si estamos cargando una víctima, buscar la salida más cercana
+        elif self.carrying:
+            for entry in self.model.scenario["entries"]:
+                y, x = entry
+                path = self.pathfinder.find_path(current_pos, (x, y))
+                if path:  # Si hay un camino válido
+                    targets.append((x, y, 'exit', len(path)))
+
+        # Si no hay víctimas alcanzables o no llevamos una, apagar fuegos
         if not targets:
             # Primero intentar apagar fuegos adyacentes
             x, y = current_pos
             for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
                 new_x, new_y = x + dx, y + dy
-                if (0 <= new_y < grid_height and 0 <= new_x < grid_width and 
+                if (0 <= new_y < grid_height and 0 <= new_x < grid_width and
                     self.model.grid_state[new_y][new_x]["fire"]):
-                    # Verificar si hay una víctima cerca del fuego
-                    for dx2, dy2 in [(-1,0), (1,0), (0,-1), (0,1)]:
-                        check_x, check_y = new_x + dx2, new_y + dy2
-                        if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
-                            cell = self.model.grid_state[check_y][check_x]
-                            if cell["poi"] == "v":
-                                return (new_x, new_y, 'fire'), [(x,y), (new_x,new_y)]
                     return (new_x, new_y, 'fire'), [(x,y), (new_x,new_y)]
-            
-            # Si no hay fuegos adyacentes, buscar el más crítico
-            critical_fires = []
+
+            # Si no hay fuegos adyacentes, buscar el más cercano
             for y in range(grid_height):
                 for x in range(grid_width):
                     if self.model.grid_state[y][x]["fire"]:
-                        priority = 0
-                        # Aumentar prioridad si hay víctimas cercanas
-                        for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
-                            check_x, check_y = x + dx, y + dy
-                            if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
-                                cell = self.model.grid_state[check_y][check_x]
-                                if cell["poi"] == "v":
-                                    priority += 10
-                                elif cell["fire"]:
-                                    priority += 5
-                        path = self.pathfinder.find_path(current_pos, (x, y), avoid_fire=True)
-                        if path:
-                            critical_fires.append((x, y, 'fire', len(path), priority))
-            
-            if critical_fires:
-                # Ordenar por prioridad (mayor a menor) y luego por distancia
-                critical_fires.sort(key=lambda x: (-x[4], x[3]))
-                target = critical_fires[0]
-                return (target[0], target[1], target[2]), self.pathfinder.find_path(current_pos, (target[0], target[1]))
-        
+                        path = self.pathfinder.find_path(current_pos, (x, y))
+                        if path:  # Si hay un camino válido
+                            targets.append((x, y, 'fire', len(path)))
+
         if not targets:
             return None, []
-        
+
         # Ordenar por distancia (menor a mayor)
         targets.sort(key=lambda x: x[3])
-        target = targets[0]
+        target = targets[0]  # Tomar el más cercano
+
+        # Obtener el camino al objetivo elegido
         path = self.pathfinder.find_path(current_pos, (target[0], target[1]))
         return (target[0], target[1], target[2]), path
 
@@ -1162,62 +1167,61 @@ class FirefighterAgent(Agent):
             self.model.grid.move_agent(self, self.assigned_entry)
             self.assigned_entry = None
             return
-        
+
         while self.ap > 0:
-            # Si estamos en una celda con una acción posible, realizarla primero
-            if self._perform_other_actions():
-                continue
-            
             # Reset del camino si llegamos al objetivo o no hay camino válido
             if not self.current_path or len(self.current_path) <= 1:
                 self.current_target, self.current_path = self.find_nearest_target()
                 if not self.current_target:
                     break  # No hay objetivos disponibles
-            
+
             # Si tenemos un camino, intentar seguirlo
             if self.current_path and len(self.current_path) > 1:
                 next_pos = self.current_path[1]
                 ap_cost = self._calculate_movement_cost(next_pos)
-                
-                # Si no podemos movernos por falta de AP, terminar turno
-                if self.ap < ap_cost:
-                    break
-                
-                # Realizar el movimiento
-                success = self._perform_movement_to(next_pos)
-                if success:
-                    self.current_path = self.current_path[1:]
-                    continue
-            
-            # Si llegamos aquí, no pudimos hacer nada útil
-            break
+
+                # Si podemos movernos, hacerlo
+                if self.ap >= ap_cost:
+                    success = self._perform_movement_to(next_pos)
+                    if success:
+                        self.current_path = self.current_path[1:]
+                        continue
+
+            # Si no podemos movernos o llegamos al objetivo, intentar acciones
+            if self._perform_other_actions():
+                # Si la acción tuvo éxito, resetear el camino
+                self.current_path = []
+                self.current_target = None
+            else:
+                # Si no pudimos hacer nada, terminar el turno
+                break
 
     def _calculate_movement_cost(self, next_pos):
         """Calcula el costo de AP para moverse a una posición"""
         dest_cell = self.model.grid_state[next_pos[1]][next_pos[0]]
         ap_cost = 1
-        
+
         if dest_cell["fire"]:
             ap_cost = 2
         if self.carrying:
             ap_cost = 2
-            
+
         return ap_cost
 
     def _perform_movement_to(self, new_pos):
         """Realiza el movimiento a una posición específica"""
         # Validate position is within grid bounds
-        if not (0 <= new_pos[1] < self.model.grid.height and 
+        if not (0 <= new_pos[1] < self.model.grid.height and
                 0 <= new_pos[0] < self.model.grid.width):
             return False
-            
+
         original_pos = self.pos
         ap_cost = self._calculate_movement_cost(new_pos)
-        
+
         if self.ap >= ap_cost:
             self.model.grid.move_agent(self, new_pos)
             self.ap -= ap_cost
-            
+
             self.model.json_exporter.action_frame(
                 self.model,
                 self.unique_id,
@@ -1228,8 +1232,8 @@ class FirefighterAgent(Agent):
                 to=[new_pos[0], new_pos[1]]
             )
             return True
-        return False 
-    
+        return False
+
     def _perform_other_actions(self):
         """Realiza otras acciones como extinguir fuego o recoger víctimas"""
         x, y = self.pos
@@ -1306,56 +1310,56 @@ class FirefighterAgent(Agent):
             return True
 
         return False
-          
+
 class FireRescueModel(Model):
     """Fire rescue simulation model"""
-    
+
     def __init__(self, scenario):
         super().__init__()
-        
+
         # Build grid state first to get correct dimensions
         self.grid_state = ScenarioParser.build_grid_state(scenario)
         grid_height, grid_width = self.grid_state.shape
-        
+
         # Initialize grid with same dimensions as grid_state
         self.grid = MultiGrid(grid_width, grid_height, True)
         self.schedule = RandomActivation(self)
         self.scenario = scenario
         self.door_states = {}
-        
+
         # Initialize remaining attributes...
         door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
         for door_pos in door_positions:
             self.door_states[door_pos] = "closed"
-        
+
         self.wall_damage = {}
         self.victims_lost = 0
         self.victims_rescued = 0
         self.damage_counters = 0
         self.simulation_over = False
-        
+
         self.create_agents()
         self.step_count = 0
         self.stage = 0
         self.mazo_pois = []
         self.json_exporter = JSONExporter()
-    
+
     def create_agents(self):
         """Create 6 firefighter agents distributed among available entries"""
         num_firefighters = 6
         num_entries = len(self.scenario["entries"])
-        
+
         for i in range(num_firefighters):
             entry_idx = i % num_entries
             pos = self.scenario["entries"][entry_idx]
             row, column = pos
-            
+
             rows, columns = self.grid_state.shape
             north_dist = row
             south_dist = rows - 1 - row
             west_dist = column
             east_dist = columns - 1 - column
-            
+
             if north_dist <= min(south_dist, west_dist, east_dist):
                 ext_row, ext_col = row - 1, column
                 direction = "north"
@@ -1368,32 +1372,32 @@ class FireRescueModel(Model):
             else:
                 ext_row, ext_col = row, column + 1
                 direction = "east"
-            
+
             mesa_ext_pos = (ext_col, ext_row)
             agent = FirefighterAgent(i, self, mesa_ext_pos)
             agent.assigned_entry = (column, row)
             agent.direction = direction
-            
+
             try:
                 self.grid.place_agent(agent, mesa_ext_pos)
             except Exception as e:
                 self.grid.place_agent(agent, (column, row))
-                
+
             self.schedule.add(agent)
-    
+
     def step(self):
         """Advance simulation one step"""
         if self.simulation_over:
             return
-                    
+
         if self.step_count == 0:
             self.json_exporter.initial_state(self)
-                    
+
         self.step_count += 1
 
         if self.stage == 0:
             self.stage = 1
-        
+
         grid_before = self._copy_grid_state()
         self.schedule.step()
 
@@ -1412,7 +1416,7 @@ class FireRescueModel(Model):
         if self.simulation_over:
             result = ""
             message = ""
-            
+
             if self.victims_rescued >= 7:
                 result = "victory"
                 message = f"All {self.victims_rescued} victims rescued! Congratulations!"
@@ -1422,7 +1426,7 @@ class FireRescueModel(Model):
             else:
                 result = "defeat_collapse"
                 message = f"Building collapsed with {self.damage_counters} damage points."
-                
+
             self.json_exporter.game_over(self, result, message)
         else:
             self.json_exporter.end_of_turn(self, grid_changes)
@@ -1431,38 +1435,150 @@ class FireRescueModel(Model):
         """Creates a copy of the grid state to compare changes"""
         import copy
         return copy.deepcopy(self.grid_state)
-    
+
     def _calculate_grid_changes(self, grid_before):
         """Calculates changes in the grid between two states"""
         grid_changes = []
-        
+
         for y in range(self.grid_state.shape[0]):
             for x in range(self.grid_state.shape[1]):
                 before = grid_before[y, x]
                 after = self.grid_state[y, x]
-                
+
                 if (before["fire"] != after["fire"] or
                     before["smoke"] != after["smoke"] or
                     before["poi"] != after["poi"]):
-                    
+
                     change = {
                         "x": x,
                         "y": y
                     }
-                    
+
                     if before["fire"] != after["fire"]:
                         change["fire"] = after["fire"]
-                    
+
                     if before["smoke"] != after["smoke"]:
                         change["smoke"] = after["smoke"]
-                    
+
                     if before["poi"] != after["poi"]:
                         change["poi"] = after["poi"]
-                    
+
                     grid_changes.append(change)
-        
+
         return grid_changes
+
+        """Realiza otras acciones como extinguir fuego o recoger víctimas"""
+        x, y = self.pos
+        cell = self.model.grid_state[y][x]
+        grid_height, grid_width = self.model.grid_state.shape
     
+        # 1. Prioridad máxima: Recoger víctima en la celda actual
+        if not self.carrying and cell["poi"] == "v" and self.ap >= 2:
+            self.carrying = True
+            cell["poi"] = None
+            for i, poi in enumerate(self.model.scenario["pois"]):
+                if poi[0] == y and poi[1] == x:
+                    self.model.scenario["pois"].pop(i)
+                    break
+            self.ap -= 2
+            self.model.json_exporter.action_frame(
+                self.model,
+                self.unique_id,
+                "pickup_poi",
+                ap_before=self.ap + 2,
+                ap_after=self.ap,
+                target=[x, y],
+                poi_type="v"
+            )
+            return True
+    
+        # 2. Prioridad: Rescatar víctima si estamos en una entrada
+        if self.carrying and (x, y) in [(e[1], e[0]) for e in self.model.scenario["entries"]]:
+            self.carrying = False
+            self.model.victims_rescued += 1
+            self.ap = 0  # End turn after rescuing
+            return True
+    
+        # 3. Prioridad: Apagar fuego que amenaza víctimas
+        if self.ap >= 2:
+            # Primero revisar si hay víctimas adyacentes al fuego
+            for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
+                check_x, check_y = x + dx, y + dy
+                if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
+                    cell_to_check = self.model.grid_state[check_y][check_x]
+                    
+                    # Si encontramos fuego
+                    if cell_to_check["fire"]:
+                        # Buscar víctimas adyacentes al fuego
+                        has_nearby_victim = False
+                        for vx, vy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                            victim_x, victim_y = check_x + vx, check_y + vy
+                            if (0 <= victim_y < grid_height and 
+                                0 <= victim_x < grid_width and 
+                                self.model.grid_state[victim_y][victim_x]["poi"] == "v"):
+                                has_nearby_victim = True
+                                break
+                        
+                        # Si hay una víctima cerca o es la celda actual, apagar el fuego
+                        if has_nearby_victim or (check_x == x and check_y == y):
+                            cell_to_check["fire"] = False
+                            cell_to_check["smoke"] = True
+                            if (check_y, check_x) in self.model.scenario["fires"]:
+                                self.model.scenario["fires"].remove((check_y, check_x))
+                            self.ap -= 2
+                            self.model.json_exporter.action_frame(
+                                self.model,
+                                self.unique_id,
+                                "convert_to_smoke",
+                                ap_before=self.ap + 2,
+                                ap_after=self.ap,
+                                target=[check_x, check_y]
+                            )
+                            return True
+    
+        # 4. Prioridad: Remover humo que amenaza víctimas
+        if self.ap >= 2:
+            for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
+                check_x, check_y = x + dx, y + dy
+                if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
+                    cell_to_check = self.model.grid_state[check_y][check_x]
+                    
+                    if cell_to_check["smoke"]:
+                        # Verificar si hay víctimas cercanas
+                        has_nearby_victim = False
+                        for vx, vy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                            victim_x, victim_y = check_x + vx, check_y + vy
+                            if (0 <= victim_y < grid_height and 
+                                0 <= victim_x < grid_width and 
+                                self.model.grid_state[victim_y][victim_x]["poi"] == "v"):
+                                has_nearby_victim = True
+                                break
+                        
+                        if has_nearby_victim or (check_x == x and check_y == y):
+                            cell_to_check["smoke"] = False
+                            self.ap -= 2
+                            self.model.json_exporter.action_frame(
+                                self.model,
+                                self.unique_id,
+                                "remove_smoke",
+                                ap_before=self.ap + 2,
+                                ap_after=self.ap,
+                                target=[check_x, check_y]
+                            )
+                            return True
+    
+        # 5. Última prioridad: Marcar falsa alarma
+        if cell["poi"] == "f":
+            cell["poi"] = None
+            for i, poi in enumerate(self.model.scenario["pois"]):
+                if poi[0] == y and poi[1] == x:
+                    self.model.scenario["pois"].pop(i)
+                    break
+            self.ap = 0
+            return True
+    
+        return False
+              
 class Visualization:
     """Class that encapsulates all visualization functionalities"""
     
@@ -1780,10 +1896,13 @@ Visualization.visualize_grid_with_perimeter_and_doors(
 )
 plt.show()
 
+
 # Continuous simulation until victory or defeat
 step = 1
-while not model.simulation_over:
-    model.step()  # Execute step (includes visualization at the end)
+while not model.simulation_over and step < 50:
+    print(f"\n--- Paso {step} ---")
+    model.step()
+    Visualization.visualize_simulation(model)  
     step += 1
 
 print("\n=== SIMULATION FINISHED ===")

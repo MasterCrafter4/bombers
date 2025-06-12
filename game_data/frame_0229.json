@@ -2,22 +2,23 @@
   "frame": 229,
   "turn": 14,
   "action": {
-    "firefighter_id": 5,
-    "type": "convert_to_smoke",
+    "firefighter_id": 4,
+    "type": "pickup_poi",
     "ap_before": 3,
     "ap_after": 1,
     "target": [
-      8,
+      7,
       3
-    ]
+    ],
+    "poi_type": "v"
   },
   "firefighters": [
     {
-      "id": 5,
-      "x": 8,
+      "id": 4,
+      "x": 7,
       "y": 3,
       "ap": 1,
-      "carrying": false
+      "carrying": true
     }
   ],
   "grid_changes": [],

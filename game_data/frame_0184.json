@@ -3,19 +3,23 @@
   "turn": 11,
   "action": {
     "firefighter_id": 0,
-    "type": "remove_smoke",
+    "type": "move",
     "ap_before": 3,
     "ap_after": 1,
-    "target": [
-      4,
-      2
+    "from": [
+      8,
+      3
+    ],
+    "to": [
+      7,
+      3
     ]
   },
   "firefighters": [
     {
       "id": 0,
-      "x": 4,
-      "y": 2,
+      "x": 7,
+      "y": 3,
       "ap": 1,
       "carrying": false
     }

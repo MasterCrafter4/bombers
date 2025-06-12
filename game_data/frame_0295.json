@@ -1,0 +1,14 @@
+{
+  "frame": 295,
+  "turn": 17,
+  "action": {
+    "type": "game_over",
+    "result": "defeat_victims",
+    "message": "4 victims were lost in the fire."
+  },
+  "summary": {
+    "rescued": 3,
+    "lost": 4,
+    "damage": 24
+  }
+}

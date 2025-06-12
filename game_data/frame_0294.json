@@ -1,0 +1,27 @@
+{
+  "frame": 294,
+  "turn": 17,
+  "action": {
+    "firefighter_id": 2,
+    "type": "convert_to_smoke",
+    "ap_before": 3,
+    "ap_after": 1,
+    "target": [
+      6,
+      2
+    ]
+  },
+  "firefighters": [
+    {
+      "id": 2,
+      "x": 6,
+      "y": 2,
+      "ap": 1,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}

@@ -835,8 +835,8 @@ class GameMechanics:
         
         pois_to_add = 3 - current_pois_count
         
-        # Initialize POI deck if needed
-        if not hasattr(model, "mazo_pois"):
+        # Initialize POI deck if needed or if it's empty
+        if not hasattr(model, "mazo_pois") or len(model.mazo_pois) == 0:
             initial_victims_count = sum(1 for poi in model.scenario["pois"] if poi[2] == "v")
             initial_false_alarms_count = sum(1 for poi in model.scenario["pois"] if poi[2] == "f")
             
@@ -847,55 +847,92 @@ class GameMechanics:
             model.random.shuffle(model.mazo_pois)
         
         # Add new POIs
+        pois_added = 0
         for _ in range(pois_to_add):
             if not model.mazo_pois:
                 break
             
             poi_type = model.mazo_pois.pop(0)
             
-            # Find valid cell
-            placed = False
-            attempts = 0
-            max_attempts = 100
+            # Get all valid cells first
+            valid_cells = []
+            rows, cols = model.grid_state.shape
             
-            while not placed and attempts < max_attempts:
-                attempts += 1
-                
-                # Generate random coordinates
-                rows, cols = model.grid_state.shape
-                row = model.random.randint(1, rows - 2)
-                col = model.random.randint(1, cols - 2)
-                
-                # Check if valid cell
-                if model.grid_state[row, col]["poi"] is None:
-                    # Remove fire/smoke if present
-                    if model.grid_state[row, col]["fire"]:
-                        model.grid_state[row, col]["fire"] = False
-                        if (row, col) in model.scenario["fires"]:
-                            model.scenario["fires"].remove((row, col))
+            for row in range(1, rows-1):
+                for col in range(1, cols-1):
+                    # Skip cells that already have POIs
+                    if model.grid_state[row, col]["poi"] is not None:
+                        continue
+                        
+                    # Skip cells with walls on all sides (unreachable)
+                    has_access = False
+                    for direction in range(4):
+                        if not DirectionHelper.has_wall(model, row, col, direction) or DirectionHelper.is_wall_destroyed(model, row, col, direction):
+                            has_access = True
+                            break
                     
-                    if model.grid_state[row, col]["smoke"]:
-                        model.grid_state[row, col]["smoke"] = False
+                    if not has_access:
+                        continue
                     
-                    # Place POI
-                    model.grid_state[row, col]["poi"] = poi_type
-                    model.scenario["pois"].append((row, col, poi_type))
-                    
-                    # Check if firefighter already present
-                    cell_contents = model.grid.get_cell_list_contents((col, row))
-                    firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
-                    
-                    if firefighters:
-                        if poi_type == "f":  # False alarm
-                            model.grid_state[row, col]["poi"] = None
-                            model.scenario["pois"].remove((row, col, poi_type))
-                    
-                    placed = True
+                    # Add to valid cells list
+                    valid_cells.append((row, col))
             
-            if not placed:
-                # Return card to deck and shuffle
+            # If no valid cells found
+            if not valid_cells:
                 model.mazo_pois.append(poi_type)
                 model.random.shuffle(model.mazo_pois)
+                continue
+                
+            # Shuffle the valid cells to add randomness
+            model.random.shuffle(valid_cells)
+            
+            # Try placing POI in a valid cell
+            placed = False
+            for row, col in valid_cells:
+                # Skip if another POI already exists
+                if model.grid_state[row, col]["poi"] is not None:
+                    continue
+                    
+                # Check for firefighter in cell
+                cell_contents = model.grid.get_cell_list_contents((col, row))
+                firefighters = [agent for agent in cell_contents if isinstance(agent, FirefighterAgent)]
+                
+                # If firefighter and false alarm, skip this cell
+                if firefighters and poi_type == "f":
+                    continue
+                
+                # Remove fire/smoke if present
+                if model.grid_state[row, col]["fire"]:
+                    model.grid_state[row, col]["fire"] = False
+                    if (row, col) in model.scenario["fires"]:
+                        model.scenario["fires"].remove((row, col))
+                
+                if model.grid_state[row, col]["smoke"]:
+                    model.grid_state[row, col]["smoke"] = False
+                
+                # Place POI
+                model.grid_state[row, col]["poi"] = poi_type
+                model.scenario["pois"].append((row, col, poi_type))
+                
+                # Handle immediate discovery by firefighter
+                if firefighters and poi_type == "v":
+                    for ff in firefighters:
+                        if not ff.carrying:
+                            ff.carrying = True
+                            model.grid_state[row, col]["poi"] = None
+                            model.scenario["pois"].remove((row, col, poi_type))
+                            model.log_action(f"Bombero {ff.unique_id} encontró inmediatamente una víctima")
+                            break
+                
+                placed = True
+                pois_added += 1
+                break
+                
+            if not placed:
+                model.mazo_pois.append(poi_type)
+                model.random.shuffle(model.mazo_pois)
+        
+        return pois_added > 0
 
     @staticmethod
     def check_end_conditions(model):
@@ -1751,8 +1788,10 @@ plt.show()
 
 # Continuous simulation until victory or defeat
 step = 1
-while not model.simulation_over:
-    model.step()  # Execute step (includes visualization at the end)
+while not model.simulation_over and step < 50:
+    print(f"\n--- Paso {step} ---")
+    model.step()
+    Visualization.visualize_simulation(model)  
     step += 1
 
 print("\n=== SIMULATION FINISHED ===")
