@@ -2,21 +2,25 @@
   "frame": 276,
   "turn": 17,
   "action": {
-    "firefighter_id": 2,
-    "type": "convert_to_smoke",
-    "ap_before": 2,
-    "ap_after": 0,
-    "target": [
-      5,
-      2
+    "firefighter_id": 5,
+    "type": "move",
+    "ap_before": 4,
+    "ap_after": 2,
+    "from": [
+      9,
+      0
+    ],
+    "to": [
+      7,
+      1
     ]
   },
   "firefighters": [
     {
-      "id": 2,
-      "x": 5,
-      "y": 2,
-      "ap": 0,
+      "id": 5,
+      "x": 7,
+      "y": 1,
+      "ap": 2,
       "carrying": false
     }
   ],

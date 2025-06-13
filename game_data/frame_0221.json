@@ -1,14 +1,14 @@
 {
   "frame": 221,
-  "turn": 14,
+  "turn": 12,
   "action": {
-    "firefighter_id": 0,
+    "firefighter_id": 4,
     "type": "move",
-    "ap_before": 2,
-    "ap_after": 0,
+    "ap_before": 3,
+    "ap_after": 2,
     "from": [
-      8,
-      2
+      7,
+      1
     ],
     "to": [
       7,
@@ -17,10 +17,10 @@
   },
   "firefighters": [
     {
-      "id": 0,
+      "id": 4,
       "x": 7,
       "y": 2,
-      "ap": 0,
+      "ap": 2,
       "carrying": false
     }
   ],

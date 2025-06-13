@@ -4,24 +4,18 @@ from mesa.space import MultiGrid
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import json
-import os
+
+
+
 
 class JSONExporter:
-    """Class to export game state to JSON files for Unity"""
+    """Class to export game state to JSON for API responses only"""
     
-    def __init__(self, output_dir="game_data"):
+    def __init__(self):
         self.frame_counter = 0
-        self.output_dir = output_dir
-        
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
     
     def save_frame(self, data):
-        """Saves a frame as a JSON file"""
-        filename = os.path.join(self.output_dir, f"frame_{self.frame_counter:04d}.json")
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        """Returns data without saving to file"""
         self.frame_counter += 1
         return data
     
@@ -98,6 +92,7 @@ class JSONExporter:
                 "rescued": 0,
                 "lost": 0,
                 "damage": 0,
+                "pois_active": len(model.scenario["pois"]),
                 "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 15
             }
         }
@@ -112,88 +107,110 @@ class JSONExporter:
                 agent = a
                 break
         
-        if not agent:
-            return None
+        # Si es una acción especial como "end_of_turn" o knockdown, no necesitamos un bombero específico
+        if agent is None and firefighter_id != -1:
+            # Intentar encontrar bombero por coordenadas en caso de knockdown
+            if "knockdown_coords" in kwargs:
+                for a in model.schedule.agents:
+                    x, y = a.pos
+                    kx, ky = kwargs["knockdown_coords"]
+                    if x == kx and y == ky:
+                        agent = a
+                        firefighter_id = a.unique_id
+                        break
         
-        x, y = agent.pos
-        
+        # Preparar los datos básicos del frame
         data = {
             "frame": self.frame_counter,
             "turn": model.step_count,
             "action": {
-                "firefighter_id": firefighter_id,
-                "type": action_type,
-                "ap_before": kwargs.get("ap_before", 0),
-                "ap_after": kwargs.get("ap_after", 0)
+                "type": action_type
             },
-            "firefighters": [
-                {
-                    "id": firefighter_id,
-                    "x": x,
-                    "y": y,
-                    "ap": agent.ap,
-                    "carrying": agent.carrying
-                }
-            ],
             "grid_changes": kwargs.get("grid_changes", []),
             "wall_damage": kwargs.get("wall_damage", []),
             "doors": kwargs.get("doors", []),
             "pois": kwargs.get("pois", [])
         }
         
-        if action_type == "move":
-            data["action"]["from"] = kwargs.get("from_pos", [0, 0])
-            data["action"]["to"] = kwargs.get("to", [x, y])
-        elif action_type in ["extinguish_fire", "convert_to_smoke", "remove_smoke"]:
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-        elif action_type == "pickup_poi":
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-            data["action"]["poi_type"] = kwargs.get("poi_type", "")
-        
-        return self.save_frame(data)
-    
-    def end_of_turn(self, model, grid_changes=None):
-        """Generates the JSON for the end of turn"""
-        firefighters = []
-        for agent in model.schedule.agents:
+        # Añadir información del bombero si existe
+        if agent:
             x, y = agent.pos
-            firefighters.append({
-                "id": agent.unique_id,
+            data["action"]["firefighter_id"] = firefighter_id
+            data["action"]["ap_before"] = kwargs.get("ap_before", 0)
+            data["action"]["ap_after"] = kwargs.get("ap_after", 0)
+            
+            data["firefighters"] = [{
+                "id": firefighter_id,
                 "x": x,
                 "y": y,
                 "ap": agent.ap,
                 "carrying": agent.carrying
-            })
+            }]
+            
+            # Añadir todos los bomberos si es un knockdown o fin de turno
+            if action_type in ["knockdown", "end_of_turn"]:
+                data["firefighters"] = []
+                for a in model.schedule.agents:
+                    x, y = a.pos
+                    data["firefighters"].append({
+                        "id": a.unique_id,
+                        "x": x,
+                        "y": y,
+                        "ap": a.ap,
+                        "carrying": a.carrying
+                    })
+        else:
+            # Para acciones sin bombero (como end_of_turn), incluir todos
+            if action_type in ["end_of_turn", "smoke_placement", "fire_propagation", "flashover"]:
+                data["firefighters"] = []
+                for a in model.schedule.agents:
+                    x, y = a.pos
+                    data["firefighters"].append({
+                        "id": a.unique_id,
+                        "x": x,
+                        "y": y,
+                        "ap": a.ap,
+                        "carrying": a.carrying
+                    })
         
-        if grid_changes is None:
-            grid_changes = []
+        # Datos específicos para cada tipo de acción
+        if action_type == "move":
+            data["action"]["from"] = kwargs.get("from_pos", [0, 0])
+            data["action"]["to"] = kwargs.get("to", [0, 0])
         
-        pois = []
-        for y, x, poi_type in model.scenario["pois"]:
-            pois.append({
-                "x": x,
-                "y": y,
-                "type": poi_type
-            })
+        elif action_type in ["extinguish_fire", "convert_to_smoke", "remove_smoke"]:
+            data["action"]["target"] = kwargs.get("target", [0, 0])
+            
+        elif action_type == "cut_wall":
+            data["action"]["target"] = kwargs.get("target", [0, 0])
+            data["action"]["direction"] = kwargs.get("direction", 0)
+            
+        elif action_type == "pickup_poi":
+            data["action"]["target"] = kwargs.get("target", [0, 0])
+            data["action"]["poi_type"] = kwargs.get("poi_type", "")
+            
+        elif action_type == "knockdown":
+            data["action"]["message"] = kwargs.get("message", "Firefighter knocked down")
+            data["action"]["ambulance_pos"] = kwargs.get("ambulance_pos", [9, 0])
+            
+        elif action_type == "smoke_placement":
+            data["action"]["message"] = kwargs.get("message", "Smoke placed")
+            
+        elif action_type == "fire_propagation":
+            data["action"]["message"] = kwargs.get("message", "Fire propagation")
+            
+        elif action_type == "flashover":
+            data["action"]["message"] = kwargs.get("message", "Flashover occurred")
         
-        data = {
-            "frame": self.frame_counter,
-            "turn": model.step_count,
-            "action": {
-                "type": "end_of_turn"
-            },
-            "firefighters": firefighters,
-            "grid_changes": grid_changes,
-            "wall_damage": [],
-            "doors": [],
-            "pois": pois,
-            "summary": {
+        # Información resumen al final del turno
+        if action_type == "end_of_turn":
+            data["summary"] = {
                 "rescued": model.victims_rescued,
                 "lost": model.victims_lost,
                 "damage": model.damage_counters,
+                "pois_active": len(model.scenario["pois"]),
                 "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
             }
-        }
         
         return self.save_frame(data)
     
@@ -210,11 +227,14 @@ class JSONExporter:
             "summary": {
                 "rescued": model.victims_rescued,
                 "lost": model.victims_lost,
-                "damage": model.damage_counters
+                "damage": model.damage_counters,
+                "pois_active": len(model.scenario["pois"]),
+                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
             }
         }
         
         return self.save_frame(data)
+
 
 # Scenario content (full format)
 scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
@@ -249,6 +269,7 @@ scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
 4 8
 6 3"""
 
+# Primero modificamos ScenarioParser para quitar logs de parseo
 class ScenarioParser:
     @staticmethod
     def _parse_grid_walls(lines):
@@ -259,15 +280,11 @@ class ScenarioParser:
                 original_grid[i, j] = [int(d) for d in cell]
         
         grid = np.zeros((8, 10, 4), dtype=int)
-
         grid[1:7, 1:9] = original_grid
-
         grid[0, 1:9, 0] = 1  
         grid[7, 1:9, 2] = 1  
         grid[1:7, 0, 3] = 1  
         grid[1:7, 9, 1] = 1  
-        
-        print("Walls parsed correctly.")
         return grid
 
     @staticmethod
@@ -275,15 +292,12 @@ class ScenarioParser:
         """Parses the Points of Interest (POI) lines"""
         pois = []
         poi_lines = lines[6:9]  
-        
         for line in poi_lines:
             parts = line.strip().split()
             if len(parts) == 3:
                 row, col, poi_type = parts
                 row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
                 pois.append((row_idx, col_idx, poi_type))
-        
-        print(f"POIs parsed: {pois}")
         return pois
 
     @staticmethod
@@ -291,15 +305,12 @@ class ScenarioParser:
         """Parses the initial fire lines"""
         fires = []
         fire_lines = lines[9:19]  
-        
         for line in fire_lines:
             parts = line.strip().split()
             if len(parts) == 2:
                 row, col = parts
                 row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
                 fires.append((row_idx, col_idx))
-        
-        print(f"Initial fires parsed: {fires}")
         return fires
 
     @staticmethod
@@ -307,7 +318,6 @@ class ScenarioParser:
         """Parses the door lines"""
         doors = []
         door_lines = lines[19:27]  
-        
         for line in door_lines:
             parts = line.strip().split()
             if len(parts) == 4:
@@ -315,8 +325,6 @@ class ScenarioParser:
                 r1_idx, c1_idx = int(r1) - 1 + 1, int(c1) - 1 + 1
                 r2_idx, c2_idx = int(r2) - 1 + 1, int(c2) - 1 + 1
                 doors.append(((r1_idx, c1_idx), (r2_idx, c2_idx)))
-        
-        print(f"Doors parsed: {doors}")
         return doors
 
     @staticmethod
@@ -324,24 +332,19 @@ class ScenarioParser:
         """Parses the firefighter entry lines"""
         entries = []
         entry_lines = lines[27:31]  
-        
         for line in entry_lines:
             parts = line.strip().split()
             if len(parts) == 2:
                 row, col = parts
                 row_idx, col_idx = int(row) - 1 + 1, int(col) - 1 + 1
                 entries.append((row_idx, col_idx))
-        
-        print(f"Entries parsed: {entries}")
         return entries
 
     @staticmethod
     def parse_scenario(scenario_text):
         """Main function that parses the entire scenario content"""
         lines = scenario_text.strip().split('\n')
-        
         if len(lines) < 31:
-            print(f"Error: The scenario must have at least 31 lines, it has {len(lines)}")
             return None
         
         grid = ScenarioParser._parse_grid_walls(lines)
@@ -357,8 +360,6 @@ class ScenarioParser:
             "doors": doors,
             "entries": entries
         }
-        
-        print("Scenario completely parsed.")
         return scenario
     
     @staticmethod
@@ -475,6 +476,28 @@ class DirectionHelper:
         return door_key in door_positions
     
     @staticmethod
+    def is_door_open(model, y, x, direction):
+        """Verifica específicamente si una puerta está abierta, considerando ambos lados"""
+        door_key = DirectionHelper.get_wall_key(y, x, direction)
+        
+        # Verificar en dirección normal
+        if door_key in model.door_states and model.door_states[door_key] == "open":
+            return True
+        
+        # También verificar desde la otra celda
+        nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
+        opposite_dir = DirectionHelper.get_opposite_direction(direction)
+        
+        # Si es una posición válida
+        if 0 <= ny < model.grid.height and 0 <= nx < model.grid.width:
+            opposite_key = DirectionHelper.get_wall_key(ny, nx, opposite_dir)
+            if opposite_key in model.door_states and model.door_states[opposite_key] == "open":
+                return True
+        
+        # Si no se cumple ninguna condición, la puerta no está abierta
+        return False
+
+    @staticmethod
     def get_door_state(model, y, x, direction):
         """Gets the state of a door (open/closed/destroyed)"""
         door_key = (y, x, direction)
@@ -504,29 +527,48 @@ class DirectionHelper:
         
         model.damage_counters += 1
         
+        if not hasattr(model, 'wall_damage_changes'):
+            model.wall_damage_changes = []
+        
+        nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
+        
+        model.wall_damage_changes.append({
+            "from": [x, y],
+            "to": [nx, ny],
+            "damage": model.wall_damage[wall_key]
+        })
+        
         if model.wall_damage[wall_key] >= 2:
             model.grid_state[y, x]["walls"][direction] = 0
             
-            new_x, new_y = DirectionHelper.get_adjacent_position(x, y, direction)
+            
             opposite_direction = DirectionHelper.get_opposite_direction(direction)
             
-            if 0 <= new_y < model.grid.height and 0 <= new_x < model.grid.width:
-                model.grid_state[new_y, new_x]["walls"][opposite_direction] = 0
+            if 0 <= ny < model.grid.height and 0 <= nx < model.grid.width:
+                model.grid_state[ny, nx]["walls"][opposite_direction] = 0
+                
+                
+                opposite_key = DirectionHelper.get_wall_key(ny, nx, opposite_direction)
+                model.wall_damage[opposite_key] = model.wall_damage[wall_key]
                 
             return True  
         
         return False  
 
 class GameMechanics:
+
     @staticmethod
     def advance_fire(model):
         """Propagates fire through the scenario according to Flash Point: Fire Rescue rules"""
         rows, cols = model.grid_state.shape
+        model.log_action("Iniciando fase de propagación del fuego", "FUEGO")
         
-        if not hasattr(model, 'victims_lost'):
-            model.victims_lost = 0
-        if not hasattr(model, 'damage_counters'):
-            model.damage_counters = 0
+        if not hasattr(model, 'grid_changes'):
+            model.grid_changes = []
+        if not hasattr(model, 'door_changes'):
+            model.door_changes = []
+        if not hasattr(model, 'wall_damage_changes'):
+            model.wall_damage_changes = []
         
         random_row = model.random.randint(1, rows-2)
         random_col = model.random.randint(1, cols-2)
@@ -536,33 +578,83 @@ class GameMechanics:
         # Case 1: Cell with no fire or smoke -> Add SMOKE
         if not cell["fire"] and not cell["smoke"]:
             cell["smoke"] = True
-        
+            
+            # Añadir cambio para el JSON con tipo explícito
+            grid_change = {
+                "x": random_col,
+                "y": random_row,
+                "smoke": True
+            }
+            model.grid_changes.append(grid_change)
+            
+            # Emitir un frame específico para colocación de humo
+            model.json_exporter.action_frame(
+                model,
+                -1,
+                "smoke_placement",
+                message=f"Smoke placed at ({random_col},{random_row})",
+                grid_changes=[grid_change]
+            )
+            model.log_action(
+                f"Se generó nuevo HUMO en ({random_col},{random_row}) - Fase de propagación", 
+                "FUEGO"
+            )
+
         # Case 2: Cell with smoke -> Convert to fire
         elif not cell["fire"] and cell["smoke"]:
             cell["fire"] = True
             cell["smoke"] = False
             if (random_row, random_col) not in model.scenario["fires"]:
                 model.scenario["fires"].append((random_row, random_col))
+
+            grid_change = {
+                "x": random_col,
+                "y": random_row,
+                "fire": True,
+                "smoke": False
+            }
+            model.grid_changes.append(grid_change)
+            
+            # Emitir un frame específico para conversión de humo a fuego
+            model.json_exporter.action_frame(
+                model,
+                -1,
+                "fire_propagation",
+                message=f"Smoke converted to fire at ({random_col},{random_row})",
+                grid_changes=[grid_change]
+            )
             
             # Check if there's a victim in the cell
             if cell["poi"] == "v":
                 cell["poi"] = None
                 model.victims_lost += 1
                 
+                poi_change = {
+                    "x": random_col,
+                    "y": random_row,
+                    "poi": None
+                }
+                model.grid_changes.append(poi_change)
+                
                 # Update POIs in the scenario
                 for i, poi in enumerate(model.scenario["pois"]):
                     if poi[0] == random_row and poi[1] == random_col:
                         model.scenario["pois"].pop(i)
                         break
+            model.log_action(
+                f"HUMO convertido a FUEGO en ({random_col},{random_row}) - Fase de propagación", 
+                "FUEGO"
+            )
         
         # Case 3: Cell with fire -> EXPLOSION
         elif cell["fire"]:
             for direction in range(4):
                 GameMechanics.propagate_explosion(model, random_row, random_col, direction)
         
-        # Smoke to fire propagation (second phase)
+        # Realizar el flashover completo (convertir todo humo adyacente a fuego)
         new_fires = []
         new_smokes = []
+        grid_changes_flashover = []
         
         # Detect fire propagation
         for y in range(rows):
@@ -574,11 +666,38 @@ class GameMechanics:
                             
                             if 0 <= ny < rows and 0 <= nx < cols:
                                 if not DirectionHelper.is_perimeter(model, nx, ny):
+                                    # Comportamiento de flashover: humo adyacente a fuego se convierte en fuego
                                     if not model.grid_state[ny, nx]["fire"]:
                                         if model.grid_state[ny, nx]["smoke"]:
                                             new_fires.append((ny, nx))
-                                        else:
+                                            grid_changes_flashover.append({
+                                                "x": nx,
+                                                "y": ny,
+                                                "fire": True,
+                                                "smoke": False
+                                            })
+                                        # Casillas vacías adyacentes a fuego reciben humo
+                                        elif not model.grid_state[ny, nx]["smoke"]:
                                             new_smokes.append((ny, nx))
+                                            grid_changes_flashover.append({
+                                                "x": nx,
+                                                "y": ny,
+                                                "smoke": True
+                                            })
+        
+        # Si hay cambios de flashover, emitir un frame específico
+        if grid_changes_flashover:
+            model.json_exporter.action_frame(
+                model,
+                -1,
+                "flashover",
+                message="Flashover: smoke adjacent to fire converted to fire",
+                grid_changes=grid_changes_flashover
+            )
+            model.log_action(
+                f"FLASHOVER: {len(new_fires)} casillas de humo convertidas a fuego, {len(new_smokes)} casillas con nuevo humo", 
+                "FUEGO"
+            )
         
         # Apply the detected changes - first apply the new fires
         for y, x in new_fires:
@@ -616,11 +735,31 @@ class GameMechanics:
         if direction == DirectionHelper.NORTH:
             door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
             
+            # Destruir puertas en todas direcciones desde el origen de la explosión
             for dir_check in range(4):
+                # Verificar si hay puerta en cada dirección
                 door = (row, col, dir_check)
                 if door in door_positions:
+                    # Si la puerta existe y tiene estado, destruirla
                     if door in model.door_states:
+                        old_state = model.door_states[door]
                         del model.door_states[door]
+                        
+                        # Añadir a los cambios para UI
+                        # Buscar las coordenadas de la puerta para el JSON
+                        for (r1, c1), (r2, c2) in model.scenario["doors"]:
+                            door_key1 = DirectionHelper.get_wall_key(r1, c1, dir_check)
+                            door_key2 = DirectionHelper.get_wall_key(r2, c2, dir_check)
+                            
+                            if door == door_key1 or door == door_key2:
+                                model.door_changes.append({
+                                    "from": [c1, r1],
+                                    "to": [c2, r2], 
+                                    "state": "destroyed"  # Las puertas dañadas por explosión se destruyen
+                                })
+                                break
+                        
+                        model.log_action(f"Door destroyed by explosion at ({col},{row}) in direction {DirectionHelper.DIRECTION_NAMES[dir_check]}")
         
         # Start propagation
         x, y = col, row
@@ -644,10 +783,21 @@ class GameMechanics:
                 
             if door_in_path in door_positions:
                 if door_in_path in model.door_states:
+                    old_state = model.door_states[door_in_path]
                     del model.door_states[door_in_path]
-                y = new_y
-                x = new_x
-                continue
+                    
+                    # Buscar las coordenadas de la puerta para el JSON
+                    for (r1, c1), (r2, c2) in model.scenario["doors"]:
+                        door_key1 = DirectionHelper.get_wall_key(r1, c1, direction)
+                        door_key2 = DirectionHelper.get_wall_key(r2, c2, direction)
+                        
+                        if door_in_path == door_key1 or door_in_path == door_key2:
+                            model.door_changes.append({
+                                "from": [c1, r1],
+                                "to": [c2, r2], 
+                                "state": "destroyed"  # Las puertas dañadas por explosión se destruyen
+                            })
+                            break
             
             # Check for wall in path
             has_wall = DirectionHelper.has_wall(model, y, x, direction)
@@ -811,24 +961,44 @@ class GameMechanics:
         
         # Process injured firefighters
         for ff in injured_firefighters:
-            # If carrying victim, the victim is lost
+            original_pos = (ff.pos[0], ff.pos[1])
+            model.log_action(
+                f"¡ALERTA! Bombero {ff.unique_id} ha sido derribado por el fuego en ({ff.pos[0]}, {ff.pos[1]}). Trasladado a la ambulancia.",
+                "KNOCKDOWN"
+            )
+            
+            # Si carrying victim, the victim is lost
             if ff.carrying:
                 ff.carrying = False
                 model.victims_lost += 1
+                model.log_action(f"Firefighter {ff.unique_id} lost victim due to knockdown")
                 # Replenish POI when victim lost
                 GameMechanics.replenish_pois(model)
             
-            # Move to ambulance
+            # Move to ambulance and log action
             model.grid.remove_agent(ff)
             model.grid.place_agent(ff, ambulance_pos)
+            model.log_action(f"Firefighter {ff.unique_id} knocked down and moved to ambulance")
             
             # Reduce AP to 0
             ff.ap = 0
+            
+            # Crear un frame específico para el knockdown
+            model.json_exporter.action_frame(
+                model,
+                ff.unique_id,
+                "knockdown",
+                message=f"Firefighter {ff.unique_id} knocked down by fire",
+                knockdown_coords=original_pos,
+                ambulance_pos=[ambulance_pos[0], ambulance_pos[1]],
+                grid_changes=[]
+            )
 
     @staticmethod
     def replenish_pois(model):
         """Replenishes POIs on the board to always maintain 3 POIs available"""
         current_pois_count = len(model.scenario["pois"])
+        poi_changes = []
         
         if current_pois_count >= 3:
             return
@@ -845,11 +1015,14 @@ class GameMechanics:
             
             model.mazo_pois = ["v"] * remaining_victims + ["f"] * remaining_false_alarms
             model.random.shuffle(model.mazo_pois)
+            
+            model.log_action(f"POI deck initialized with {remaining_victims} victims and {remaining_false_alarms} false alarms")
         
         # Add new POIs
         pois_added = 0
         for _ in range(pois_to_add):
             if not model.mazo_pois:
+                model.log_action("POI deck is empty, no more POIs can be added")
                 break
             
             poi_type = model.mazo_pois.pop(0)
@@ -881,6 +1054,7 @@ class GameMechanics:
             if not valid_cells:
                 model.mazo_pois.append(poi_type)
                 model.random.shuffle(model.mazo_pois)
+                model.log_action(f"No valid cells found for POI placement, returned {poi_type} to deck")
                 continue
                 
             # Shuffle the valid cells to add randomness
@@ -906,13 +1080,25 @@ class GameMechanics:
                     model.grid_state[row, col]["fire"] = False
                     if (row, col) in model.scenario["fires"]:
                         model.scenario["fires"].remove((row, col))
+                    model.log_action(f"Fire removed for POI placement at ({col},{row})")
                 
                 if model.grid_state[row, col]["smoke"]:
                     model.grid_state[row, col]["smoke"] = False
+                    model.log_action(f"Smoke removed for POI placement at ({col},{row})")
                 
                 # Place POI
                 model.grid_state[row, col]["poi"] = poi_type
                 model.scenario["pois"].append((row, col, poi_type))
+                
+                # Registrar el cambio para el JSON
+                poi_change = {
+                    "x": col,
+                    "y": row,
+                    "type": poi_type
+                }
+                poi_changes.append(poi_change)
+                
+                model.log_action(f"New POI ({poi_type}) placed at ({col},{row}). Remaining in deck: {len(model.mazo_pois)}")
                 
                 # Handle immediate discovery by firefighter
                 if firefighters and poi_type == "v":
@@ -921,7 +1107,7 @@ class GameMechanics:
                             ff.carrying = True
                             model.grid_state[row, col]["poi"] = None
                             model.scenario["pois"].remove((row, col, poi_type))
-                            model.log_action(f"Bombero {ff.unique_id} encontró inmediatamente una víctima")
+                            model.log_action(f"Firefighter {ff.unique_id} immediately found victim at ({col},{row})")
                             break
                 
                 placed = True
@@ -931,8 +1117,20 @@ class GameMechanics:
             if not placed:
                 model.mazo_pois.append(poi_type)
                 model.random.shuffle(model.mazo_pois)
+                model.log_action(f"Could not place POI, returned {poi_type} to deck")
+        
+        # Si se agregaron POIs, crear un frame específico
+        if poi_changes:
+            model.json_exporter.action_frame(
+                model,
+                -1,
+                "poi_replenish",
+                message=f"Replenished {len(poi_changes)} POIs. Remaining in deck: {len(model.mazo_pois)}",
+                pois=poi_changes
+            )
         
         return pois_added > 0
+
 
     @staticmethod
     def check_end_conditions(model):
@@ -995,6 +1193,12 @@ class FirefighterAgent(Agent):
                     target=[cell_x, cell_y],
                     grid_changes=grid_changes
                 )
+                
+                self.model.log_action(
+                    f"Bombero {self.unique_id} apagó fuego en ({cell_x}, {cell_y}) | AP: -{2} → {self.ap} restantes", 
+                    "EXTINCIÓN"
+                )
+
                 return True
         
         elif type == "convert" and cell["fire"]:
@@ -1017,6 +1221,12 @@ class FirefighterAgent(Agent):
                     target=[cell_x, cell_y],
                     grid_changes=grid_changes
                 )
+                
+                self.model.log_action(
+                    f"Bombero {self.unique_id} convirtió fuego a humo en ({cell_x}, {cell_y}) | AP: -{1} → {self.ap} restantes", 
+                    "EXTINCIÓN"
+                )
+
                 return True
         
         elif type == "smoke" and cell["smoke"]:
@@ -1036,15 +1246,20 @@ class FirefighterAgent(Agent):
                     target=[cell_x, cell_y],
                     grid_changes=grid_changes
                 )
+                
+                self.model.log_action(
+                    f"Bombero {self.unique_id} eliminó humo en ({cell_x}, {cell_y}) | AP: -{1} → {self.ap} restantes", 
+                    "EXTINCIÓN"
+                )
                 return True
             return False
         
         return False
-    
+
     def open_close_door(self, direction):
-        """Opens or closes an adjacent door in the specified direction"""
+        """Opens or closes an adjacent door in the specified direction (as a deliberate action, costs AP)"""
         if self.ap < 1:
-            return False
+            return False, None, None
         
         x, y = self.pos
         
@@ -1054,14 +1269,50 @@ class FirefighterAgent(Agent):
             if door_pos not in self.model.door_states:
                 self.model.door_states[door_pos] = "closed"
             
-            new_state = "open" if self.model.door_states[door_pos] == "closed" else "closed"
+            current_state = self.model.door_states[door_pos]
+            new_state = "open" if current_state == "closed" else "closed"
             self.model.door_states[door_pos] = new_state
             
-            self.ap -= 1
-            return True
+            ap_before = self.ap
+            self.ap -= 1  
+            
+            # Find door coordinates for JSON
+            door_changes = []
+            for (r1, c1), (r2, c2) in self.model.scenario["doors"]:
+                door_key1 = DirectionHelper.get_wall_key(r1, c1, direction)
+                door_key2 = DirectionHelper.get_wall_key(r2, c2, direction)
+                
+                # Also check opposite direction
+                opposite_dir = DirectionHelper.get_opposite_direction(direction)
+                door_key3 = DirectionHelper.get_wall_key(r1, c1, opposite_dir)
+                door_key4 = DirectionHelper.get_wall_key(r2, c2, opposite_dir)
+                
+                if door_pos in [door_key1, door_key2, door_key3, door_key4]:
+                    door_changes.append({
+                        "from": [c1, r1],
+                        "to": [c2, r2], 
+                        "state": new_state
+                    })
+                    break
+            
+            # Generate JSON frame for door action
+            self.model.json_exporter.action_frame(
+                self.model,
+                self.unique_id,
+                "open_close_door",
+                ap_before=ap_before,
+                ap_after=self.ap,
+                doors=door_changes
+            )
+            
+            dir_names = ["north", "east", "south", "west"]
+            action_text = "opened" if new_state == "open" else "closed"
+            self.model.log_action(f"Firefighter {self.unique_id} {action_text} door to {dir_names[direction]} [-1 AP]")
+            
+            return True, door_pos, new_state
         else:
-            return False
-    
+            return False, None, None
+
     def cut_wall(self, direction):
         """Cuts an adjacent wall in the specified direction"""
         if self.ap < 2:
@@ -1077,8 +1328,30 @@ class FirefighterAgent(Agent):
             if is_perimeter:
                 return False
             
+            ap_before = self.ap  
             wall_destroyed = DirectionHelper.damage_wall(self.model, y, x, direction)
             self.ap -= 2
+            
+            wall_damage_changes = []
+            if hasattr(self.model, 'wall_damage_changes'):
+                wall_damage_changes = self.model.wall_damage_changes
+            
+            self.model.json_exporter.action_frame(
+                self.model,
+                self.unique_id,
+                "cut_wall",  
+                ap_before=ap_before,
+                ap_after=self.ap,
+                target=[nx, ny], 
+                wall_damage=wall_damage_changes
+            )
+            
+            dir_names = ["north", "east", "south", "west"]
+            if wall_destroyed:
+                self.model.log_action(f"Firefighter {self.unique_id} destroyed wall to {dir_names[direction]} [-2 AP]")
+            else:
+                self.model.log_action(f"Firefighter {self.unique_id} damaged wall to {dir_names[direction]} [-2 AP]")
+            
             return True
         else:
             return False
@@ -1106,11 +1379,12 @@ class FirefighterAgent(Agent):
             # Check for rescue at entry with victim
             if self.carrying:
                 is_entry = self.pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-                is_perimeter = self.pos[0] == 0 or self.pos[0] == self.model.grid.width - 1 or \
-                            self.pos[1] == 0 or self.pos[1] == self.model.grid.height - 1
                 
-                if is_entry and is_perimeter:
+                if is_entry:
                     self.carrying = False
+                    self.model.victims_rescued += 1
+                    GameMechanics.replenish_pois(self.model)
+                    self.model.log_action(f"Firefighter {self.unique_id} rescued a victim at ({self.pos[0]}, {self.pos[1]})!")
                     return
         
             # Generate possible actions
@@ -1225,7 +1499,7 @@ class FirefighterAgent(Agent):
                 self.cut_wall(direction)
             elif action == "pass":
                 break
-    
+
     def _perform_movement(self):
         """Helper method to perform a movement, respecting constraints"""
         x, y = self.pos
@@ -1235,46 +1509,72 @@ class FirefighterAgent(Agent):
         movements = []
         
         for direction in range(4):
-            if DirectionHelper.can_pass_wall(self.model, y, x, direction):
+            # Check if can pass through wall/door
+            can_pass = False
+            
+            # Case 1: No wall
+            if not DirectionHelper.has_wall(self.model, y, x, direction):
+                can_pass = True
+            # Case 2: Destroyed wall (2+ damage)
+            elif DirectionHelper.is_wall_destroyed(self.model, y, x, direction):
+                can_pass = True
+            # Case 3: Is a door AND it's open
+            elif DirectionHelper.is_door(self.model, y, x, direction):
+                if DirectionHelper.is_door_open(self.model, y, x, direction):
+                    can_pass = True
+                else:
+                    can_pass = False
+            
+            if can_pass:
                 nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
                 
+                # Check if the adjacent position is within grid limits
                 if 0 <= ny < self.model.grid.height and 0 <= nx < self.model.grid.width:
-                    dest_cell = self.model.grid_state[ny, nx]
+                    # Check if it's not a perimeter cell (except for an entry)
+                    is_entry = (nx, ny) in [(e[1], e[0]) for e in self.model.scenario["entries"]]
                     is_perimeter = DirectionHelper.is_perimeter(self.model, nx, ny)
-                    is_entry = DirectionHelper.is_entry(self.model, nx, ny)
                     
-                    ap_cost = 1
-                    
-                    if dest_cell["fire"]:
-                        ap_cost = 2
-                    
-                    if self.carrying:
-                        ap_cost = 2
-                    
-                    can_go = True
-                    if self.carrying and dest_cell["fire"]:
-                        can_go = False
-                    
-                    if self.ap < ap_cost:
-                        can_go = False
-                    
-                    if can_go and (not is_perimeter or (self.carrying and is_entry)):
-                        movements.append((nx, ny, ap_cost))
+                    if not is_perimeter or is_entry:
+                        dest_cell = self.model.grid_state[ny, nx]
+                        
+                        # Calculate AP cost
+                        ap_cost = 1
+                        if dest_cell["fire"]:
+                            ap_cost = 2
+                        if self.carrying:
+                            ap_cost = 2
+                        
+                        # Check if has enough AP
+                        if self.ap >= ap_cost:
+                            # Cannot carry victim into fire
+                            if not (self.carrying and dest_cell["fire"]):
+                                movements.append((nx, ny, ap_cost, direction))
         
         if not movements:
+            # Simply return False 
             return False
         
+        # Select random movement
         new_pos_info = self.model.random.choice(movements)
         new_pos = (new_pos_info[0], new_pos_info[1])
         ap_cost = new_pos_info[2]
         
-        is_entry = new_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
-        is_perimeter = new_pos[0] == 0 or new_pos[0] == self.model.grid.width - 1 or \
-                     new_pos[1] == 0 or new_pos[1] == self.model.grid.height - 1
-        
+        # Perform the movement
         self.model.grid.move_agent(self, new_pos)
         self.ap -= ap_cost
-
+        
+        movement_type = "normal"
+        if self.model.grid_state[new_pos[1], new_pos[0]]["fire"]:
+            movement_type = "through fire"
+        elif self.carrying:
+            movement_type = "carrying victim"
+        
+        self.model.log_action(
+            f"Bombero {self.unique_id} se movió a ({new_pos[0]}, {new_pos[1]}) | Estado: {movement_type} | AP: -{ap_cost} → {self.ap} restantes", 
+            "MOVIMIENTO"
+        )
+            
+        # ONLY generate JSON for successful movements
         self.model.json_exporter.action_frame(
             self.model,
             self.unique_id,
@@ -1285,43 +1585,64 @@ class FirefighterAgent(Agent):
             to=[new_pos[0], new_pos[1]]
         )
         
-        if self.carrying and is_entry and is_perimeter:
+        # Handle rescue and POI logic...
+        new_x, new_y = new_pos
+        new_cell = self.model.grid_state[new_y, new_x]
+        
+        # Handle POIs in the new cell
+        if new_cell["poi"] is not None:
+            poi_type = new_cell["poi"]
+            
+            if poi_type == "v" and not self.carrying:
+                self.carrying = True
+                new_cell["poi"] = None
+                self.model.log_action(
+                    f"Bombero {self.unique_id} encontró y recogió una VÍCTIMA en ({new_x}, {new_y})",
+                    "POI"
+                )
+                
+                self.model.log_action(f"Firefighter {self.unique_id} picked up victim at ({new_x}, {new_y})")
+                
+                # Remove POI from scenario
+                for i, poi in enumerate(self.model.scenario["pois"]):
+                    if poi[0] == new_y and poi[1] == new_x:
+                        self.model.scenario["pois"].pop(i)
+                        break
+            
+            elif poi_type == "f":
+                new_cell["poi"] = None
+                
+                self.model.log_action(
+                    f"Bombero {self.unique_id} descubrió FALSA ALARMA en ({new_x}, {new_y})",
+                    "POI"
+                )
+                
+                # Remove POI from scenario
+                for i, poi in enumerate(self.model.scenario["pois"]):
+                    if poi[0] == new_y and poi[1] == new_x:
+                        self.model.scenario["pois"].pop(i)
+                        break
+                
+                GameMechanics.replenish_pois(self.model)
+        
+        # Handle rescue at entry
+        is_entry = new_pos in [(e[1], e[0]) for e in self.model.scenario["entries"]]
+        if self.carrying and is_entry:
             self.carrying = False
             self.model.victims_rescued += 1
+            
+            # NUEVO: Log para rescate exitoso
+            self.model.log_action(f"Firefighter {self.unique_id} RESCUED VICTIM at entry ({new_x}, {new_y})!")
+            
             GameMechanics.replenish_pois(self.model)
-            return True
-        else:
-            new_x, new_y = new_pos
-            new_cell = self.model.grid_state[new_y, new_x]
-            
-            if new_cell["poi"] is not None:
-                poi_type = new_cell["poi"]
-                
-                if poi_type == "v" and not self.carrying:
-                    self.carrying = True
-                    new_cell["poi"] = None
-                    
-                    for i, poi in enumerate(self.model.scenario["pois"]):
-                        if poi[0] == new_y and poi[1] == new_x:
-                            self.model.scenario["pois"].pop(i)
-                            break
-                
-                elif poi_type == "f":
-                    new_cell["poi"] = None
-                    
-                    for i, poi in enumerate(self.model.scenario["pois"]):
-                        if poi[0] == new_y and poi[1] == new_x:
-                            self.model.scenario["pois"].pop(i)
-                            break
-                    
-                    GameMechanics.replenish_pois(self.model)
-            
-            return True
-        
+
+        return True
+
+
 class FireRescueModel(Model):
     """Fire rescue simulation model"""
     
-    def __init__(self, scenario):
+    def __init__(self, scenario, visualize_frames=True):
         super().__init__()
         
         self.grid = MultiGrid(10, 8, False)
@@ -1339,13 +1660,153 @@ class FireRescueModel(Model):
         self.victims_rescued = 0
         self.damage_counters = 0
         self.simulation_over = False
+
+        self.visualize_frames = visualize_frames
+        self.frame_delay = 0.3
+
+        # Logs of actions
+        self.turn_actions = []
         
         self.create_agents()
         self.step_count = 0
         self.stage = 0
         self.mazo_pois = []
         self.json_exporter = JSONExporter()
-    
+
+    def log_action(self, message, category="INFO"):
+        """Registers an action message for the current turn with category"""
+        timestamp = f"[T{self.step_count}]"
+        categorized_message = f"{timestamp} [{category}] {message}"
+        self.turn_actions.append(categorized_message)
+
+    def visualize_current_frame(self, title=None):
+        """Visualiza el estado actual como un frame individual"""
+        
+        if self.visualize_frames:
+            custom_title = title if title else f"Simulación - Paso {self.step_count}"
+            Visualization.visualize_simulation(self, custom_title)
+            
+            try:
+                import time
+                time.sleep(self.frame_delay)
+            except:
+                pass
+
+    def get_formatted_actions(self):
+        """Returns a formatted version of action logs for display"""
+        categories = {"MOVIMIENTO": [], "EXTINCIÓN": [], "FUEGO": [], "KNOCKDOWN": [], "POI": [], "INFO": []}
+        
+        for action in self.turn_actions:
+            for category in categories.keys():
+                if f"[{category}]" in action:
+                    clean_action = action.replace(f"[{category}] ", "")
+                    categories[category].append(clean_action)
+                    break
+        
+        formatted_logs = []
+        for category, logs in categories.items():
+            if logs:
+                formatted_logs.append(f"=== {category} ===")
+                formatted_logs.extend([f"• {log}" for log in logs])
+                formatted_logs.append("")
+        
+        return formatted_logs
+
+    def print_turn_summary(self):
+        """Prints a detailed summary of the actions for the current turn"""
+        print(f"\n{'=' * 60}")
+        print(f"     RESUMEN DEL TURNO {self.step_count}     ")
+        print(f"{'=' * 60}")
+        print(f"• Víctimas rescatadas: {self.victims_rescued}")
+        print(f"• Víctimas perdidas: {self.victims_lost}")
+        print(f"• Daño estructural: {self.damage_counters}/24")
+        print(f"• POIs activos: {len(self.scenario['pois'])}")
+        print(f"• Focos de fuego activos: {len(self.scenario['fires'])}")
+        print(f"• POIs restantes en mazo: {len(self.mazo_pois)}")
+        
+        # Posición de cada bombero
+        print("\nPOSICIÓN DE BOMBEROS:")
+        for agent in self.schedule.agents:
+            status = "Con víctima" if agent.carrying else "Sin víctima"
+            x, y = agent.pos
+            is_fire = self.grid_state[y, x]["fire"]
+            is_smoke = self.grid_state[y, x]["smoke"]
+            cell_state = "en FUEGO" if is_fire else ("en HUMO" if is_smoke else "normal")
+            print(f"  Bombero {agent.unique_id}: ({x}, {y}) | AP: {agent.ap}/{agent.max_ap} | {status} | Casilla: {cell_state}")
+        
+        # Mostrar logs categorizados
+        if self.turn_actions:
+            print("\nACCIONES DE ESTE TURNO:")
+            categories = {"MOVIMIENTO": [], "EXTINCIÓN": [], "FUEGO": [], "KNOCKDOWN": [], "POI": [], "INFO": []}
+            
+            # Clasificar logs por categoría
+            for action in self.turn_actions:
+                for category in categories.keys():
+                    if f"[{category}]" in action:
+                        categories[category].append(action)
+                        break
+            
+            # Mostrar logs por categoría
+            for category, logs in categories.items():
+                if logs:
+                    print(f"\n--- {category} ---")
+                    for log in logs:
+                        # Quitar la parte de la categoría para evitar redundancia
+                        log = log.replace(f"[{category}] ", "")
+                        print(f"  • {log}")
+        
+        # Información de fin de simulación
+        if self.simulation_over:
+            print("\n" + "*" * 60)
+            print("*** SIMULACIÓN FINALIZADA ***")
+            if self.victims_rescued >= 7:
+                print(f"¡VICTORIA! Se han rescatado {self.victims_rescued} víctimas.")
+            elif self.victims_lost >= 4:
+                print(f"DERROTA: Se han perdido {self.victims_lost} víctimas.")
+            else:
+                print(f"DERROTA: El edificio ha colapsado ({self.damage_counters} puntos de daño).")
+            print("*" * 60)
+        print("=" * 60)
+
+    def initialize_door_states(self):
+        """Inicializa todas las puertas como cerradas al inicio, considerando ambos lados"""
+        self.door_states = {}
+        
+        door_positions = ScenarioParser.compute_door_positions(self.scenario["doors"])
+        
+        # Primera pasada: inicializar todas las puertas computadas
+        for door_pos in door_positions:
+            self.door_states[door_pos] = "closed"
+            
+        # Segunda pasada: crear las posiciones recíprocas para cada puerta
+        # Esto es CRÍTICO para que funcione la validación bidireccional
+        door_states_copy = dict(self.door_states)
+        for pos, state in door_states_copy.items():
+            y, x, direction = pos
+            nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
+            
+            if 0 <= ny < self.grid.height and 0 <= nx < self.grid.width:
+                # Obtener dirección opuesta
+                opposite_direction = DirectionHelper.get_opposite_direction(direction)
+                opposite_door_pos = DirectionHelper.get_wall_key(ny, nx, opposite_direction)
+                
+                # Asignar el mismo estado a la puerta desde el lado opuesto
+                self.door_states[opposite_door_pos] = state
+        
+        self.log_action(f"Sistema de puertas inicializado: {len(self.door_states)} posiciones (incluyendo direcciones bidireccionales)")
+        
+        # Debug: verificar que todas las puertas están registradas
+        for (r1, c1), (r2, c2) in self.scenario["doors"]:
+            door_found = False
+            for pos in door_positions:
+                y, x, d = pos
+                if (y == r1 and x == c1) or (y == r2 and x == c2):
+                    door_found = True
+                    break
+            
+            if not door_found:
+                self.log_action(f"ADVERTENCIA: Puerta ({r1},{c1})-({r2},{c2}) no tiene posición computada.")
+
     def create_agents(self):
         """Create 6 firefighter agents distributed among available entries"""
         num_firefighters = 6
@@ -1391,27 +1852,53 @@ class FireRescueModel(Model):
         """Advance simulation one step"""
         if self.simulation_over:
             return
-                    
-        if self.step_count == 0:
-            self.json_exporter.initial_state(self)
-                    
-        self.step_count += 1
-
-        if self.stage == 0:
-            self.stage = 1
         
-        grid_before = self._copy_grid_state()
-        self.schedule.step()
+        # Clear previous turn's specific change lists for this turn's accumulation
+        self.turn_actions = []
+        self.grid_changes = [] 
+        self.door_changes = []
+        self.wall_damage_changes = []
+        self.poi_changes = [] # Para los POIs que se reponen específicamente
+                
+        if self.step_count == 0:
+            self.log_action("Initial simulation state (Turn 0)")
+                
+        self.step_count += 1
+        self.log_action(f"Starting turn {self.step_count}")
 
-        if self.step_count > 1:
+        if self.stage == 0 and self.step_count == 1:
+            self.stage = 1
+            self.log_action("Firefighters enter the building (End of Turn 1 setup)")
+        
+        self.schedule.step() # Los agentes actúan y pueden generar sus propios action_frames
+
+        if self.step_count > 1 or (self.step_count == 1 and self.stage == 1):
+            self.log_action("Advancing fire propagation")
             GameMechanics.advance_fire(self)
             GameMechanics.check_firefighters_in_fire(self)
+            
+            # Regenerate action points for the next turn
+            for agent in self.schedule.agents:
+                if hasattr(agent, 'ap') and hasattr(agent, 'max_ap'):
+                    ap_gained = min(4, agent.max_ap - agent.ap)
+                    agent.ap = min(agent.ap + 4, agent.max_ap)
+                    if ap_gained > 0:
+                        self.log_action(f"Firefighter {agent.unique_id} recovers {ap_gained} action points (Total: {agent.ap})")
 
-        grid_changes = self._calculate_grid_changes(grid_before)
-        GameMechanics.replenish_pois(self)
+            # Repoblar POIs
+            GameMechanics.replenish_pois(self)
 
-        for agent in self.schedule.agents:
-            agent.ap = min(agent.ap + 4, agent.max_ap)
+        # Envío del frame end_of_turn
+        if not self.simulation_over:
+            current_frame_data = self.json_exporter.action_frame(
+                self,
+                -1,  
+                "end_of_turn",
+                grid_changes=self.grid_changes,
+                doors=self.door_changes,
+                wall_damage=self.wall_damage_changes,
+                pois=self.poi_changes
+            )
 
         game_over_result = GameMechanics.check_end_conditions(self)
 
@@ -1422,16 +1909,24 @@ class FireRescueModel(Model):
             if self.victims_rescued >= 7:
                 result = "victory"
                 message = f"All {self.victims_rescued} victims rescued! Congratulations!"
+                self.log_action(f"VICTORY! {self.victims_rescued} victims rescued")
             elif self.victims_lost >= 4:
                 result = "defeat_victims"
                 message = f"{self.victims_lost} victims were lost in the fire."
+                self.log_action(f"DEFEAT: {self.victims_lost} victims lost in the fire")
             else:
                 result = "defeat_collapse"
                 message = f"Building collapsed with {self.damage_counters} damage points."
-                
-            self.json_exporter.game_over(self, result, message)
-        else:
-            self.json_exporter.end_of_turn(self, grid_changes)
+                self.log_action(f"DEFEAT: Building collapsed with {self.damage_counters} damage points")
+        
+        print("\n=== ACCIONES DEL TURNO", self.step_count, "===")
+        for idx, action in enumerate(self.turn_actions, 1):
+            print(f"{idx}. {action}")
+        print("=" * 40)
+
+        if self.visualize_frames:
+            self.visualize_current_frame(f"Estado después del turno {self.step_count}")
+            
 
     def _copy_grid_state(self):
         """Creates a copy of the grid state to compare changes"""
@@ -1468,16 +1963,23 @@ class FireRescueModel(Model):
                     grid_changes.append(change)
         
         return grid_changes
-    
+
 class Visualization:
     """Class that encapsulates all visualization functionalities"""
     
     @staticmethod
-    def visualize_grid_with_perimeter_and_doors(grid, door_positions, entries, fires=None, pois=None, model=None):
+    def visualize_grid_with_perimeter_and_doors(grid, door_positions, entries, fires=None, pois=None, model=None, title=None):
         """Visualizes the game board with all its elements"""
         rows, columns = grid.shape[:2]
         fig, ax = plt.subplots(figsize=(12, 10))
         ax.set_facecolor('#d9f2d9')
+
+        if title:
+            ax.set_title(title)
+        elif model is not None:
+            ax.set_title(f"Simulation - Step {model.step_count}")
+        else:
+            ax.set_title("6×8 Scenario Map with Perimeter (8×10), Walls and Doors")
 
         # Determine entry directions
         entry_positions = []
@@ -1723,79 +2225,91 @@ class Visualization:
         return fig, ax
 
     @staticmethod
-    def visualize_simulation(model):
+    def visualize_simulation(model, title=None):
         """Visualizes the current state of the simulation, including firefighters"""
+        """
+        plt.close('all')
         fig, ax = Visualization.visualize_grid_with_perimeter_and_doors(
             model.scenario["grid_walls"], 
             ScenarioParser.compute_door_positions(model.scenario["doors"]), 
             model.scenario["entries"],
             model.scenario["fires"],   
             model.scenario["pois"],
-            model  
+            model,
+            title
         )
-        plt.show()
+        
+        try:
+            # Solo intenta mostrar la figura si estamos en un entorno interactivo
+            plt.draw()
+            plt.pause(0.8)  # Reducir el tiempo de pausa
+        except Exception as e:
+            # Si falla, probablemente estamos en un entorno no interactivo
+            # así que solo guardamos la figura en un archivo temporal
+            import tempfile
+            import os
+            
+            temp_dir = tempfile.gettempdir()
+            filename = os.path.join(temp_dir, f"simulation_step_{model.step_count}.png")
+            plt.savefig(filename)
+            print(f"Figura guardada en: {filename}")
 
+        """
+        pass
 
-# Parse the complete scenario
-scenario = ScenarioParser.parse_scenario(scenario_content)
+if __name__ == "__main__":
+    # Parse the complete scenario
+    scenario = ScenarioParser.parse_scenario(scenario_content)
 
-# Calculate door positions for visualization
-door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
+    # Configuración de visualización por frames
+    import sys
+    visualize_frames = True
+    if len(sys.argv) > 1 and sys.argv[1] == "--no-frames":
+        visualize_frames = False
+    
+    print(f"\nVisualización por frames: {'Activada' if visualize_frames else 'Desactivada'}")
 
-# Show final map with doors
-Visualization.visualize_grid_with_perimeter_and_doors(
-    scenario["grid_walls"], 
-    door_positions, 
-    scenario["entries"],
-    scenario["fires"],   
-    scenario["pois"]      
-)
+    # Calculate door positions for visualization
+    door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
 
-# Build the grid state
-print("\n=== BUILDING GRID STATE ===")
-grid_state = ScenarioParser.build_grid_state(scenario)
+    # Show final map with doors
+    Visualization.visualize_grid_with_perimeter_and_doors(
+        scenario["grid_walls"], 
+        door_positions, 
+        scenario["entries"],
+        scenario["fires"],   
+        scenario["pois"]      
+    )
+    plt.show()
 
+    # Build the grid state
+    print("\n=== BUILDING GRID STATE ===")
+    grid_state = ScenarioParser.build_grid_state(scenario)
 
-# Additional information
-print("\nScenario summary and grid state:")
-print(f"Grid dimensions: {scenario['grid_walls'].shape}")
-print(f"Number of POIs: {len(scenario['pois'])}")
-print(f"Number of initial fires: {len(scenario['fires'])}")
-print(f"Number of doors: {len(scenario['doors'])}")
-print(f"Number of entries: {len(scenario['entries'])}")
+    print("\n=== STARTING SIMULATION ===")
 
+    # Initialize the model with our scenario
+    model = FireRescueModel(scenario, visualize_frames=visualize_frames)
 
-print("\n=== STARTING SIMULATION ===")
+    # Show initial state
+    print("\n=== SIMULATION IN PROGRESS ===")
+    print("\n--- Initial state ---")
+    Visualization.visualize_simulation(model, "Estado Inicial")
+    
+    # Continuous simulation until victory or defeat
+    step = 1
+    while not model.simulation_over and step < 50:
+        print(f"\n--- Paso {step} ---")
+        model.step()
+        step += 1
+    
 
-# Initialize the model with our scenario
-model = FireRescueModel(scenario)
-
-# Show initial state only once
-print("\n=== SIMULATION IN PROGRESS ===")
-print("\n--- Initial state ---")
-
-# Only show initial visualization
-plt.figure(figsize=(12, 10))
-Visualization.visualize_grid_with_perimeter_and_doors(
-    scenario["grid_walls"], 
-    door_positions, 
-    scenario["entries"],
-    scenario["fires"],   
-    scenario["pois"],
-    model
-)
-plt.show()
-
-# Continuous simulation until victory or defeat
-step = 1
-while not model.simulation_over and step < 50:
-    print(f"\n--- Paso {step} ---")
-    model.step()
-    Visualization.visualize_simulation(model)  
-    step += 1
-
-print("\n=== SIMULATION FINISHED ===")
-print(f"Total steps executed: {step-1}")
-print(f"Victims rescued: {model.victims_rescued}")
-print(f"Victims lost: {model.victims_lost}")
-print(f"Accumulated wall damage: {model.damage_counters}")
+    print("\n=== SIMULATION FINISHED ===")
+    print(f"Total steps executed: {step-1}")
+    print(f"Victims rescued: {model.victims_rescued}")
+    print(f"Victims lost: {model.victims_lost}")
+    print(f"Accumulated wall damage: {model.damage_counters}")
+else:
+    # Cuando se importa desde otro archivo (como el servidor), deshabilitar visualización
+    import matplotlib
+    matplotlib.use('Agg')  

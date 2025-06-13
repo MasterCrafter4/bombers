@@ -960,141 +960,153 @@ class GameMechanics:
             
         # Game continues
         return False
-
-
-    def __init__(self, model):
-        self.model = model
-        
-    def heuristic(self, start, goal):
-        """Distancia Manhattan como heurística"""
-        return abs(start[0] - goal[0]) + abs(start[1] - goal[1])
     
-    def get_neighbors(self, pos):
-        """Obtiene celdas vecinas válidas considerando paredes y puertas"""
-        neighbors = []
-        x, y = pos
-        
-        for direction in range(4):
-            if DirectionHelper.can_pass_wall(self.model, y, x, direction):
-                nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
-                if 0 <= ny < self.model.grid.height and 0 <= nx < self.model.grid.width:
-                    neighbors.append((nx, ny))
-        return neighbors
-    
-    def find_path(self, start, goal, avoid_fire=True):
-        """Implementación del algoritmo A*"""
-        frontier = []
-        heapq.heappush(frontier, (0, start))
-        came_from = {start: None}
-        cost_so_far = {start: 0}
-        
-        while frontier:
-            current = heapq.heappop(frontier)[1]
-            
-            if current == goal:
-                break
-                
-            for next_pos in self.get_neighbors(current):
-                new_cost = cost_so_far[current] + 1
-                
-                # Penalizar celdas con fuego/humo
-                if avoid_fire:
-                    y, x = next_pos
-                    if self.model.grid_state[y][x]["fire"]:
-                        new_cost += 10
-                    elif self.model.grid_state[y][x]["smoke"]:
-                        new_cost += 5
-                
-                if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
-                    cost_so_far[next_pos] = new_cost
-                    priority = new_cost + self.heuristic(goal, next_pos)
-                    heapq.heappush(frontier, (priority, next_pos))
-                    came_from[next_pos] = current
-        
-        # Reconstruir camino
-        path = []
-        current = goal
-        while current is not None:
-            path.append(current)
-            current = came_from.get(current)
-        path.reverse()
-        
-        return path if path[0] == start else []
-
 class AStarPathfinder:
     def __init__(self, model):
         self.model = model
-        
+        self.max_search_time = 0.5  # Límite de 500ms para búsqueda de camino
+        self.max_nodes = 1000  # Límite de nodos explorados
+
     def heuristic(self, start, goal):
         """Distancia Manhattan como heurística"""
         return abs(start[0] - goal[0]) + abs(start[1] - goal[1])
-    
+
     def get_neighbors(self, pos):
-        """Obtiene celdas vecinas válidas considerando paredes y puertas"""
+        """Obtiene celdas vecinas válidas considerando paredes, puertas y la opción de romperlas"""
         neighbors = []
         x, y = pos
-        
-        # Asegurarnos que la posición actual es válida
+    
+        # Validación de posición actual
         if not (0 <= y < self.model.grid_state.shape[0] and 0 <= x < self.model.grid_state.shape[1]):
             return neighbors
-            
+    
         for direction in range(4):
+            nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
+            
+            # Validación de posición vecina
+            if not (0 <= ny < self.model.grid_state.shape[0] and 0 <= nx < self.model.grid_state.shape[1]):
+                continue
+                
+            # Caso 1: Paso libre (sin obstáculos)
             if DirectionHelper.can_pass_wall(self.model, y, x, direction):
-                nx, ny = DirectionHelper.get_adjacent_position(x, y, direction)
-                # Verificar que la nueva posición está dentro de los límites del grid_state
-                if (0 <= ny < self.model.grid_state.shape[0] and 
-                    0 <= nx < self.model.grid_state.shape[1]):
-                    neighbors.append((nx, ny))
+                neighbors.append((nx, ny, 0))  # 0 = costo normal
+                continue
+                
+            # Caso 2: Puerta
+            if DirectionHelper.is_door(self.model, y, x, direction):
+                door_state = DirectionHelper.get_door_state(self.model, y, x, direction)
+                if door_state == "closed":
+                    neighbors.append((nx, ny, 1))  # 1 AP para abrir
+                elif door_state != "destroyed":  # Si no está destruida, se puede romper
+                    neighbors.append((nx, ny, 2))  # 2 AP para romper
+                    
+            # Caso 3: Pared rompible
+            elif (DirectionHelper.has_wall(self.model, y, x, direction) and 
+                  not DirectionHelper.is_perimeter(self.model, x, y)):
+                wall_key = DirectionHelper.get_wall_key(y, x, direction)
+                damage = self.model.wall_damage.get(wall_key, 0)
+                if damage < 2:  # Si la pared aún no está destruida
+                    neighbors.append((nx, ny, 2))  # 2 AP para romper
+    
         return neighbors
     
     def find_path(self, start, goal, avoid_fire=True):
-        """Implementación del algoritmo A*"""
-        grid_height, grid_width = self.model.grid_state.shape
+        """A* optimizado con límites y caché"""
+        import time
+        start_time = time.time()
+        nodes_explored = 0
         
-        # Validate start and goal positions
+        # Validación inicial de posiciones
+        grid_height, grid_width = self.model.grid_state.shape
         if not (0 <= start[0] < grid_width and 0 <= start[1] < grid_height and
                 0 <= goal[0] < grid_width and 0 <= goal[1] < grid_height):
-            return []
+            return [], []
         
+        # Caché de caminos
+        path_key = (start, goal, avoid_fire)
+        if hasattr(self, '_path_cache') and path_key in self._path_cache:
+            path, actions = self._path_cache[path_key]
+            if self._is_path_valid(path):
+                return path, actions
+        
+        # Verificación rápida de distancia
+        if self.heuristic(start, goal) > 15:
+            return [], []
+    
         frontier = []
         heapq.heappush(frontier, (0, start))
         came_from = {start: None}
         cost_so_far = {start: 0}
+        action_cost = {start: 0}
         
-        while frontier:
+        while frontier and nodes_explored < self.max_nodes:
+            if time.time() - start_time > self.max_search_time:
+                return [], []
+                
             current = heapq.heappop(frontier)[1]
+            nodes_explored += 1
             
             if current == goal:
                 break
-            
-            for next_pos in self.get_neighbors(current):
-                new_cost = cost_so_far[current] + 1
                 
-                # Penalizar celdas con fuego/humo - Fix coordinate order here
+            neighbors = self.get_neighbors(current)
+            for next_state in neighbors:
+                next_pos = (next_state[0], next_state[1])
+                action_ap = next_state[2]
+                
+                new_cost = cost_so_far[current] + 1 + action_ap
+                
+                # Penalizaciones optimizadas
                 if avoid_fire:
-                    x, y = next_pos  # These are in grid coordinates (x,y)
-                    # Access grid_state with correct order (y,x)
-                    if self.model.grid_state[y][x]["fire"]:
+                    cell = self.model.grid_state[next_pos[1]][next_pos[0]]
+                    if cell["fire"]:
                         new_cost += 10
-                    elif self.model.grid_state[y][x]["smoke"]:
-                        new_cost += 5
+                    elif cell["smoke"]:
+                        new_cost += 3
                 
                 if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
                     cost_so_far[next_pos] = new_cost
+                    action_cost[next_pos] = action_ap
                     priority = new_cost + self.heuristic(goal, next_pos)
                     heapq.heappush(frontier, (priority, next_pos))
                     came_from[next_pos] = current
         
+        # Si no se encontró camino
+        if goal not in came_from:
+            return [], [], 
+            
         # Reconstruir camino
         path = []
+        actions = []
         current = goal
+        
         while current is not None:
             path.append(current)
+            actions.append(action_cost.get(current, 0))
             current = came_from.get(current)
-        path.reverse()
         
-        return path if path and path[0] == start else []
-
+        path.reverse()
+        actions.reverse()
+        
+        # Guardar en caché
+        if not hasattr(self, '_path_cache'):
+            self._path_cache = {}
+        self._path_cache[path_key] = (path, actions)
+        
+        return path, actions
+    
+    def _is_path_valid(self, path):
+        """Verifica si un camino sigue siendo válido"""
+        if not path:
+            return False
+            
+        for pos in path:
+            x, y = pos
+            cell = self.model.grid_state[y][x]
+            if cell["fire"]:
+                return False
+        return True
+    
 class FirefighterAgent(Agent):
     def __init__(self, unique_id, model, pos):
         super().__init__(model)
@@ -1109,91 +1121,86 @@ class FirefighterAgent(Agent):
         self.current_target = None
 
     def find_nearest_target(self):
-        """Encuentra el objetivo más cercano (víctima, fuego, etc)"""
-        targets = []
+        """Encuentra el objetivo más cercano de manera optimizada"""
         current_pos = self.pos
         grid_height, grid_width = self.model.grid_state.shape[:2]
-
-        # Priorizar víctimas si no estamos cargando una
-        if not self.carrying:
-            for poi in self.model.scenario["pois"]:
-                y, x, poi_type = poi
-                if poi_type == 'v':  # Solo víctimas, no falsas alarmas
-                    path = self.pathfinder.find_path(current_pos, (x, y))
-                    if path:  # Si hay un camino válido
-                        targets.append((x, y, 'victim', len(path)))
-
-        # Si estamos cargando una víctima, buscar la salida más cercana
-        elif self.carrying:
-            for entry in self.model.scenario["entries"]:
-                y, x = entry
-                path = self.pathfinder.find_path(current_pos, (x, y))
-                if path:  # Si hay un camino válido
-                    targets.append((x, y, 'exit', len(path)))
-
-        # Si no hay víctimas alcanzables o no llevamos una, apagar fuegos
-        if not targets:
-            # Primero intentar apagar fuegos adyacentes
-            x, y = current_pos
-            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
-                new_x, new_y = x + dx, y + dy
-                if (0 <= new_y < grid_height and 0 <= new_x < grid_width and
-                    self.model.grid_state[new_y][new_x]["fire"]):
-                    return (new_x, new_y, 'fire'), [(x,y), (new_x,new_y)]
-
-            # Si no hay fuegos adyacentes, buscar el más cercano
-            for y in range(grid_height):
-                for x in range(grid_width):
-                    if self.model.grid_state[y][x]["fire"]:
-                        path = self.pathfinder.find_path(current_pos, (x, y))
-                        if path:  # Si hay un camino válido
-                            targets.append((x, y, 'fire', len(path)))
-
-        if not targets:
-            return None, []
-
-        # Ordenar por distancia (menor a mayor)
-        targets.sort(key=lambda x: x[3])
-        target = targets[0]  # Tomar el más cercano
-
-        # Obtener el camino al objetivo elegido
-        path = self.pathfinder.find_path(current_pos, (target[0], target[1]))
-        return (target[0], target[1], target[2]), path
+        
+        # Si llevamos víctima, prioridad a la salida más cercana
+        if self.carrying:
+            entries = sorted(
+                self.model.scenario["entries"],
+                key=lambda e: abs(e[1] - current_pos[0]) + abs(e[0] - current_pos[1])
+            )
+            
+            for entry in entries[:2]:  # Probar con las 2 salidas más cercanas
+                target = (entry[1], entry[0])
+                path, actions = self.pathfinder.find_path(current_pos, target, avoid_fire=True)
+                if path:
+                    return (target[0], target[1], 'exit'), path, actions
+            return None, [], []
+        
+        # Buscar víctimas prioritariamente
+        victims = []
+        for poi in self.model.scenario["pois"]:
+            y, x, poi_type = poi
+            if poi_type == 'v':
+                dist = abs(x - current_pos[0]) + abs(y - current_pos[1])
+                if dist < 8:  # Limitar búsqueda a distancia razonable
+                    victims.append((x, y, dist))
+        
+        # Ordenar víctimas por distancia
+        victims.sort(key=lambda v: v[2])
+        for x, y, _ in victims[:2]:  # Probar con las 2 víctimas más cercanas
+            path, actions = self.pathfinder.find_path(current_pos, (x, y), avoid_fire=True)
+            if path:
+                return (x, y, 'victim'), path, actions
+        
+        # Buscar fuego cercano si no hay víctimas accesibles
+        for dx, dy in [(0,1), (1,0), (0,-1), (-1,0)]:
+            new_x, new_y = current_pos[0] + dx, current_pos[1] + dy
+            if (0 <= new_y < grid_height and 0 <= new_x < grid_width and
+                self.model.grid_state[new_y][new_x]["fire"]):
+                return (new_x, new_y, 'fire'), [current_pos, (new_x,new_y)], [0, 0]
+        
+        return None, [], []
 
     def step(self):
         """Ejecuta un paso del bombero"""
-        # Primera fase: moverse a la entrada asignada
         if self.model.stage == 1 and self.assigned_entry is not None:
             self.model.grid.move_agent(self, self.assigned_entry)
             self.assigned_entry = None
             return
-
+    
         while self.ap > 0:
-            # Reset del camino si llegamos al objetivo o no hay camino válido
             if not self.current_path or len(self.current_path) <= 1:
-                self.current_target, self.current_path = self.find_nearest_target()
+                self.current_target, self.current_path, self.path_actions = self.find_nearest_target()
                 if not self.current_target:
-                    break  # No hay objetivos disponibles
-
-            # Si tenemos un camino, intentar seguirlo
+                    break
+    
             if self.current_path and len(self.current_path) > 1:
                 next_pos = self.current_path[1]
+                action_cost = self.path_actions[1]
+    
+                # Primero realizar acción necesaria (romper/abrir)
+                if action_cost > 0:
+                    success = self._perform_obstacle_action(next_pos)
+                    if not success:
+                        self.current_path = []
+                        continue
+    
+                # Luego intentar el movimiento
                 ap_cost = self._calculate_movement_cost(next_pos)
-
-                # Si podemos movernos, hacerlo
                 if self.ap >= ap_cost:
                     success = self._perform_movement_to(next_pos)
                     if success:
                         self.current_path = self.current_path[1:]
+                        self.path_actions = self.path_actions[1:]
                         continue
-
-            # Si no podemos movernos o llegamos al objetivo, intentar acciones
+    
             if self._perform_other_actions():
-                # Si la acción tuvo éxito, resetear el camino
                 self.current_path = []
                 self.current_target = None
             else:
-                # Si no pudimos hacer nada, terminar el turno
                 break
 
     def _calculate_movement_cost(self, next_pos):
@@ -1239,11 +1246,10 @@ class FirefighterAgent(Agent):
         x, y = self.pos
         cell = self.model.grid_state[y][x]
 
-        # Si estamos en una celda con víctima y no llevamos nada
+        # 1. Recoger víctima
         if not self.carrying and cell["poi"] == "v" and self.ap >= 2:
             self.carrying = True
             cell["poi"] = None
-            # Remove POI from scenario
             for i, poi in enumerate(self.model.scenario["pois"]):
                 if poi[0] == y and poi[1] == x:
                     self.model.scenario["pois"].pop(i)
@@ -1260,14 +1266,15 @@ class FirefighterAgent(Agent):
             )
             return True
 
-        # Si llevamos una víctima y estamos en una entrada
-        if self.carrying and (x, y) in [(e[1], e[0]) for e in self.model.scenario["entries"]]:
+        # 2. Dejar víctima en entrada
+        entradas = [(e[1], e[0]) for e in self.model.scenario["entries"]]
+        if self.carrying and (x, y) in entradas:
             self.carrying = False
             self.model.victims_rescued += 1
-            self.ap = 0  # End turn after rescuing
+            self.ap = 0
             return True
 
-        # Si estamos en una celda con fuego y tenemos suficientes AP
+        # 3. Apagar fuego
         if cell["fire"] and self.ap >= 2:
             cell["fire"] = False
             cell["smoke"] = True
@@ -1284,7 +1291,7 @@ class FirefighterAgent(Agent):
             )
             return True
 
-        # Si estamos en una celda con humo y tenemos suficientes AP
+        # 4. Eliminar humo
         if cell["smoke"] and self.ap >= 2:
             cell["smoke"] = False
             self.ap -= 2
@@ -1298,17 +1305,113 @@ class FirefighterAgent(Agent):
             )
             return True
 
-        # Si estamos en una celda con falsa alarma
+        # 5. Falsa alarma
         if cell["poi"] == "f":
             cell["poi"] = None
-            # Remove POI from scenario
             for i, poi in enumerate(self.model.scenario["pois"]):
                 if poi[0] == y and poi[1] == x:
                     self.model.scenario["pois"].pop(i)
                     break
-            self.ap = 0  # End turn after checking false alarm
+            self.ap = 0
             return True
 
+        # 6. Operaciones con puertas
+        for direction in range(4):
+            if DirectionHelper.is_door(self.model, y, x, direction) and self.ap >= 1:
+                door_state = DirectionHelper.get_door_state(self.model, y, x, direction)
+                if door_state in ["open", "closed"]:
+                    new_state = "closed" if door_state == "open" else "open"
+                    self.model.door_states[(y, x, direction)] = new_state
+                    self.ap -= 1
+                    self.model.json_exporter.action_frame(
+                        self.model,
+                        self.unique_id,
+                        "toggle_door",
+                        ap_before=self.ap + 1,
+                        ap_after=self.ap,
+                        target=[x, y],
+                        direction=direction,
+                        new_state=new_state
+                    )
+                    return True
+
+        # 7. Operaciones con paredes
+        for direction in range(4):
+            if (DirectionHelper.has_wall(self.model, y, x, direction) and 
+                not DirectionHelper.is_perimeter(self.model, x, y) and 
+                self.ap >= 2):
+                if DirectionHelper.damage_wall(self.model, y, x, direction):
+                    self.ap -= 2
+                    self.model.json_exporter.action_frame(
+                        self.model,
+                        self.unique_id,
+                        "damage_wall",
+                        ap_before=self.ap + 2,
+                        ap_after=self.ap,
+                        target=[x, y],
+                        direction=direction
+                    )
+                    return True
+
+        # Si ninguna acción se realizó
+        return False
+
+    def _perform_obstacle_action(self, next_pos):
+        """Realiza acciones para superar obstáculos (romper paredes/abrir puertas)"""
+        current_x, current_y = self.pos
+        next_x, next_y = next_pos
+    
+        # Determinar dirección del movimiento
+        dx = next_x - current_x
+        dy = next_y - current_y
+        
+        # Convertir diferencia a dirección
+        direction = None
+        if dx == 1: direction = DirectionHelper.EAST
+        elif dx == -1: direction = DirectionHelper.WEST
+        elif dy == 1: direction = DirectionHelper.SOUTH
+        elif dy == -1: direction = DirectionHelper.NORTH
+    
+        if direction is None:
+            return False
+    
+        # Verificar si hay una puerta
+        if DirectionHelper.is_door(self.model, current_y, current_x, direction):
+            door_state = DirectionHelper.get_door_state(self.model, current_y, current_x, direction)
+            if door_state == "closed" and self.ap >= 1:
+                # Abrir puerta
+                self.model.door_states[(current_y, current_x, direction)] = "open"
+                self.ap -= 1
+                self.model.json_exporter.action_frame(
+                    self.model,
+                    self.unique_id,
+                    "toggle_door",
+                    ap_before=self.ap + 1,
+                    ap_after=self.ap,
+                    target=[current_x, current_y],
+                    direction=direction,
+                    new_state="open"
+                )
+                return True
+    
+        # Verificar si hay una pared rompible
+        if (DirectionHelper.has_wall(self.model, current_y, current_x, direction) and 
+            not DirectionHelper.is_perimeter(self.model, current_x, current_y) and 
+            self.ap >= 2):
+            # Romper pared
+            if DirectionHelper.damage_wall(self.model, current_y, current_x, direction):
+                self.ap -= 2
+                self.model.json_exporter.action_frame(
+                    self.model,
+                    self.unique_id,
+                    "damage_wall",
+                    ap_before=self.ap + 2,
+                    ap_after=self.ap,
+                    target=[current_x, current_y],
+                    direction=direction
+                )
+                return True
+    
         return False
 
 class FireRescueModel(Model):
@@ -1389,46 +1492,111 @@ class FireRescueModel(Model):
         """Advance simulation one step"""
         if self.simulation_over:
             return
-
+    
         if self.step_count == 0:
             self.json_exporter.initial_state(self)
-
+    
         self.step_count += 1
-
+        print(f"\n=== ACCIONES DEL TURNO {self.step_count} ===")
+        action_count = 0
+    
+        def log_action(action_type, message):
+            nonlocal action_count
+            action_count += 1
+            print(f"{action_count}. [T{self.step_count}] [{action_type}] {message}")
+    
+        log_action("INFO", f"Starting turn {self.step_count}")
+    
         if self.stage == 0:
             self.stage = 1
-
-        grid_before = self._copy_grid_state()
-        self.schedule.step()
-
+    
+        # Ejecutar acciones de los bomberos
+        for agent in self.schedule.agents:
+            initial_ap = agent.ap
+            initial_pos = agent.pos
+            carrying_before = agent.carrying
+            
+            agent.step()
+            
+            # Loggear movimientos
+            if agent.pos != initial_pos:
+                state = "con víctima" if agent.carrying else "normal"
+                log_action("MOVIMIENTO", 
+                    f"Bombero {agent.unique_id} se movió a {agent.pos} | Estado: {state} | " +
+                    f"AP: -1 → {agent.ap} restantes")
+                
+            # Loggear otras acciones
+            if agent.ap != initial_ap and agent.pos == initial_pos:
+                ap_used = initial_ap - agent.ap
+                x, y = agent.pos
+                
+                if self.grid_state[y][x]["fire"]:
+                    log_action("EXTINCIÓN", 
+                        f"Bombero {agent.unique_id} convirtió fuego a humo en {agent.pos} | " +
+                        f"AP: -{ap_used} → {agent.ap} restantes")
+                elif self.grid_state[y][x]["smoke"]:
+                    log_action("EXTINCIÓN", 
+                        f"Bombero {agent.unique_id} eliminó humo en {agent.pos} | " +
+                        f"AP: -{ap_used} → {agent.ap} restantes")
+                        
+            # Loggear recoger/dejar víctimas
+            if agent.carrying != carrying_before:
+                if agent.carrying:
+                    log_action("RESCATE", 
+                        f"Bombero {agent.unique_id} recogió víctima en {agent.pos} | " +
+                        f"AP: -2 → {agent.ap} restantes")
+                else:
+                    log_action("RESCATE", 
+                        f"Bombero {agent.unique_id} entregó víctima en {agent.pos} | " +
+                        f"Víctimas rescatadas: {self.victims_rescued}")
+    
+        # Fase de propagación del fuego
         if self.step_count > 1:
+            log_action("INFO", "Advancing fire propagation")
+            log_action("FUEGO", "Iniciando fase de propagación del fuego")
+            
+            fires_before = len(self.scenario["fires"])
+            smokes_before = sum(1 for y in range(self.grid_state.shape[0]) 
+                              for x in range(self.grid_state.shape[1]) 
+                              if self.grid_state[y][x]["smoke"])
+            
             GameMechanics.advance_fire(self)
             GameMechanics.check_firefighters_in_fire(self)
-
-        grid_changes = self._calculate_grid_changes(grid_before)
-        GameMechanics.replenish_pois(self)
-
+            
+            fires_after = len(self.scenario["fires"])
+            smokes_after = sum(1 for y in range(self.grid_state.shape[0]) 
+                             for x in range(self.grid_state.shape[1]) 
+                             if self.grid_state[y][x]["smoke"])
+            
+            if fires_after > fires_before:
+                log_action("FUEGO", 
+                    f"FLASHOVER: {fires_after - fires_before} casillas de humo convertidas a fuego, " +
+                    f"{smokes_after - smokes_before} casillas con nuevo humo")
+    
+        # Recuperación de AP
         for agent in self.schedule.agents:
+            old_ap = agent.ap
             agent.ap = min(agent.ap + 4, agent.max_ap)
-
-        game_over_result = GameMechanics.check_end_conditions(self)
-
-        if self.simulation_over:
-            result = ""
-            message = ""
-
+            log_action("INFO", f"Firefighter {agent.unique_id} recovers 4 action points (Total: {agent.ap})")
+    
+        # Reposición de POIs
+        if GameMechanics.replenish_pois(self):
+            for y, x, poi_type in self.scenario["pois"][-3:]:  # Últimos 3 POIs añadidos
+                log_action("INFO", 
+                    f"New POI ({poi_type}) placed at ({x},{y}). Remaining in deck: {len(self.mazo_pois)}")
+    
+        # Condiciones de fin de juego
+        if GameMechanics.check_end_conditions(self):
             if self.victims_rescued >= 7:
-                result = "victory"
-                message = f"All {self.victims_rescued} victims rescued! Congratulations!"
+                log_action("INFO", f"VICTORY: {self.victims_rescued} victims rescued!")
             elif self.victims_lost >= 4:
-                result = "defeat_victims"
-                message = f"{self.victims_lost} victims were lost in the fire."
+                log_action("INFO", f"DEFEAT: {self.victims_lost} victims lost in the fire")
             else:
-                result = "defeat_collapse"
-                message = f"Building collapsed with {self.damage_counters} damage points."
-
-            self.json_exporter.game_over(self, result, message)
-        else:
+                log_action("INFO", f"DEFEAT: Building collapsed with {self.damage_counters} damage points")
+    
+        # Actualizar estado del juego
+        grid_changes = self._calculate_grid_changes(self._copy_grid_state())
+        if not self.simulation_over:
             self.json_exporter.end_of_turn(self, grid_changes)
 
     def _copy_grid_state(self):
@@ -1466,447 +1634,115 @@ class FireRescueModel(Model):
                     grid_changes.append(change)
 
         return grid_changes
-
-        """Realiza otras acciones como extinguir fuego o recoger víctimas"""
-        x, y = self.pos
-        cell = self.model.grid_state[y][x]
-        grid_height, grid_width = self.model.grid_state.shape
-    
-        # 1. Prioridad máxima: Recoger víctima en la celda actual
-        if not self.carrying and cell["poi"] == "v" and self.ap >= 2:
-            self.carrying = True
-            cell["poi"] = None
-            for i, poi in enumerate(self.model.scenario["pois"]):
-                if poi[0] == y and poi[1] == x:
-                    self.model.scenario["pois"].pop(i)
-                    break
-            self.ap -= 2
-            self.model.json_exporter.action_frame(
-                self.model,
-                self.unique_id,
-                "pickup_poi",
-                ap_before=self.ap + 2,
-                ap_after=self.ap,
-                target=[x, y],
-                poi_type="v"
-            )
-            return True
-    
-        # 2. Prioridad: Rescatar víctima si estamos en una entrada
-        if self.carrying and (x, y) in [(e[1], e[0]) for e in self.model.scenario["entries"]]:
-            self.carrying = False
-            self.model.victims_rescued += 1
-            self.ap = 0  # End turn after rescuing
-            return True
-    
-        # 3. Prioridad: Apagar fuego que amenaza víctimas
-        if self.ap >= 2:
-            # Primero revisar si hay víctimas adyacentes al fuego
-            for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
-                check_x, check_y = x + dx, y + dy
-                if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
-                    cell_to_check = self.model.grid_state[check_y][check_x]
-                    
-                    # Si encontramos fuego
-                    if cell_to_check["fire"]:
-                        # Buscar víctimas adyacentes al fuego
-                        has_nearby_victim = False
-                        for vx, vy in [(-1,0), (1,0), (0,-1), (0,1)]:
-                            victim_x, victim_y = check_x + vx, check_y + vy
-                            if (0 <= victim_y < grid_height and 
-                                0 <= victim_x < grid_width and 
-                                self.model.grid_state[victim_y][victim_x]["poi"] == "v"):
-                                has_nearby_victim = True
-                                break
-                        
-                        # Si hay una víctima cerca o es la celda actual, apagar el fuego
-                        if has_nearby_victim or (check_x == x and check_y == y):
-                            cell_to_check["fire"] = False
-                            cell_to_check["smoke"] = True
-                            if (check_y, check_x) in self.model.scenario["fires"]:
-                                self.model.scenario["fires"].remove((check_y, check_x))
-                            self.ap -= 2
-                            self.model.json_exporter.action_frame(
-                                self.model,
-                                self.unique_id,
-                                "convert_to_smoke",
-                                ap_before=self.ap + 2,
-                                ap_after=self.ap,
-                                target=[check_x, check_y]
-                            )
-                            return True
-    
-        # 4. Prioridad: Remover humo que amenaza víctimas
-        if self.ap >= 2:
-            for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
-                check_x, check_y = x + dx, y + dy
-                if (0 <= check_y < grid_height and 0 <= check_x < grid_width):
-                    cell_to_check = self.model.grid_state[check_y][check_x]
-                    
-                    if cell_to_check["smoke"]:
-                        # Verificar si hay víctimas cercanas
-                        has_nearby_victim = False
-                        for vx, vy in [(-1,0), (1,0), (0,-1), (0,1)]:
-                            victim_x, victim_y = check_x + vx, check_y + vy
-                            if (0 <= victim_y < grid_height and 
-                                0 <= victim_x < grid_width and 
-                                self.model.grid_state[victim_y][victim_x]["poi"] == "v"):
-                                has_nearby_victim = True
-                                break
-                        
-                        if has_nearby_victim or (check_x == x and check_y == y):
-                            cell_to_check["smoke"] = False
-                            self.ap -= 2
-                            self.model.json_exporter.action_frame(
-                                self.model,
-                                self.unique_id,
-                                "remove_smoke",
-                                ap_before=self.ap + 2,
-                                ap_after=self.ap,
-                                target=[check_x, check_y]
-                            )
-                            return True
-    
-        # 5. Última prioridad: Marcar falsa alarma
-        if cell["poi"] == "f":
-            cell["poi"] = None
-            for i, poi in enumerate(self.model.scenario["pois"]):
-                if poi[0] == y and poi[1] == x:
-                    self.model.scenario["pois"].pop(i)
-                    break
-            self.ap = 0
-            return True
-    
-        return False
-              
+      
 class Visualization:
     """Class that encapsulates all visualization functionalities"""
     
+    # ...existing visualization methods...
+    
     @staticmethod
-    def visualize_grid_with_perimeter_and_doors(grid, door_positions, entries, fires=None, pois=None, model=None):
-        """Visualizes the game board with all its elements"""
-        rows, columns = grid.shape[:2]
-        fig, ax = plt.subplots(figsize=(12, 10))
-        ax.set_facecolor('#d9f2d9')
-
-        # Determine entry directions
-        entry_positions = []
-        for y, x in entries:
-            north_dist = y
-            south_dist = rows - 1 - y
-            west_dist = x
-            east_dist = columns - 1 - x
-            
-            min_dist = min(north_dist, south_dist, west_dist, east_dist)
-            
-            if min_dist == north_dist:
-                entry_positions.append((y, x, 0))  # North
-            elif min_dist == east_dist:
-                entry_positions.append((y, x, 1))  # East
-            elif min_dist == south_dist:
-                entry_positions.append((y, x, 2))  # South
-            else:
-                entry_positions.append((y, x, 3))  # West
-
-        for y in range(rows):
-            for x in range(columns):
-                # Check cell state
-                is_fire = (y, x) in fires if fires else False
-                is_smoke = False
+    def print_grid_state(model):
+        """Prints the current state of the grid in terminal"""
+        print("\n" + "="*50)
+        print(f"TURNO {model.step_count}")
+        print("="*50)
+        
+        # Estado del juego
+        print(f"Víctimas Rescatadas: {model.victims_rescued}")
+        print(f"Víctimas Perdidas: {model.victims_lost}")
+        print(f"Daño Estructural: {model.damage_counters}/24\n")
+        
+        # Obtener posiciones de bomberos
+        firefighter_positions = {}
+        for agent in model.schedule.agents:
+            firefighter_positions[agent.pos] = f"B{agent.unique_id}"
+        
+        # Imprimir grid
+        for y in range(model.grid.height):
+            row = ""
+            for x in range(model.grid.width):
+                pos = (x, y)
+                cell = model.grid_state[y][x]
                 
-                if model is not None:
-                    is_smoke = model.grid_state[y, x]["smoke"]
-                
-                # Set background color
-                if is_fire:
-                    color = '#ffcccc'  # Fire
-                elif is_smoke:
-                    color = '#e6e6e6'  # Smoke
-                elif x == 0 or x == columns-1 or y == 0 or y == rows-1:
-                    color = '#b3e6b3'  # Perimeter
+                if pos in firefighter_positions:
+                    row += f"{firefighter_positions[pos]:^3}"
+                elif cell["fire"]:
+                    row += " F "
+                elif cell["smoke"]:
+                    row += " S "
+                elif cell["poi"] == "v":
+                    row += " V "
+                elif cell["poi"] == "f":
+                    row += " X "
+                elif cell["door"]:
+                    row += " D "
+                elif DirectionHelper.is_entry(model, x, y):
+                    row += " E "
+                elif any(cell["walls"]):
+                    row += " # "
                 else:
-                    color = '#e6f7ff'  # Playable cells
-                    
-                rect = patches.Rectangle((x, rows - y - 1), 1, 1, linewidth=0, facecolor=color)
-                ax.add_patch(rect)
-
-                # Draw grid lines
-                ax.plot([x, x+1], [rows - y - 1, rows - y - 1], color='gray', linewidth=0.3)
-                ax.plot([x, x+1], [rows - y, rows - y], color='gray', linewidth=0.3)
-                ax.plot([x, x], [rows - y - 1, rows - y], color='gray', linewidth=0.3)
-                ax.plot([x+1, x+1], [rows - y - 1, rows - y], color='gray', linewidth=0.3)
-
-                # Draw fire symbol
-                if is_fire:
-                    ax.plot(x + 0.5, rows - y - 0.5, 'o', markersize=15, 
-                            markerfacecolor='#ff6600', markeredgecolor='red', alpha=0.7)
-                    ax.plot(x + 0.5, rows - y - 0.5, '*', markersize=10, 
-                            markerfacecolor='yellow', markeredgecolor='yellow')
-                
-                # Draw smoke symbol
-                elif is_smoke:
-                    ax.plot(x + 0.5, rows - y - 0.5, 's', markersize=14, 
-                            markerfacecolor='#a6a6a6', markeredgecolor='#808080', alpha=0.6)
-                    ax.plot(x + 0.5, rows - y - 0.5, 'o', markersize=8, 
-                            markerfacecolor='#d3d3d3', markeredgecolor='#d3d3d3', alpha=0.8)
-
-                # Draw POIs
-                if pois:
-                    for poi_y, poi_x, poi_type in pois:
-                        if poi_y == y and poi_x == x:
-                            if poi_type == 'v':  # Victim
-                                ax.plot(x + 0.5, rows - y - 0.5, 'D', markersize=12, 
-                                        markerfacecolor='#00cc66', markeredgecolor='black', zorder=10)
-                            elif poi_type == 'f':  # False alarm
-                                ax.plot(x + 0.5, rows - y - 0.5, 'X', markersize=12, 
-                                        markerfacecolor='#cccccc', markeredgecolor='black', zorder=10)
-                                
-                # Handle perimeter walls
-                is_perimeter = (x == 0 or x == columns-1 or y == 0 or y == rows-1)
-                if is_perimeter:
-                    if y == 0:
-                        ax.plot([x, x+1], [rows - y, rows - y], color='black', linewidth=2.5)
-                    if y == rows-1:
-                        ax.plot([x, x+1], [rows - y - 1, rows - y - 1], color='black', linewidth=2.5)
-                    if x == 0:
-                        ax.plot([x, x], [rows - y - 1, rows - y], color='black', linewidth=2.5)
-                    if x == columns-1:
-                        ax.plot([x+1, x+1], [rows - y - 1, rows - y], color='black', linewidth=2.5)
-                else:
-                    # Get wall data
-                    if model is not None:
-                        wall_n, wall_e, wall_s, wall_w = model.grid_state[y, x]["walls"]
-                    else:
-                        wall_n, wall_e, wall_s, wall_w = grid[y, x]
-
-                    # Check for doors and entries
-                    door_n = (y, x, 0) in door_positions
-                    door_e = (y, x, 1) in door_positions
-                    door_s = (y, x, 2) in door_positions
-                    door_w = (y, x, 3) in door_positions
-                    
-                    entry_n = (y, x, 0) in entry_positions
-                    entry_e = (y, x, 1) in entry_positions
-                    entry_s = (y, x, 2) in entry_positions
-                    entry_w = (y, x, 3) in entry_positions
-
-                    # North direction
-                    if entry_n:
-                        ax.plot([x+0.25, x+0.75], [rows - y, rows - y], color='white', linewidth=4.0)
-                    elif door_n:
-                        door_color = 'brown'
-                        if model is not None and (y, x, 0) in model.door_states:
-                            door_open = model.door_states[(y, x, 0)] == "open"
-                            door_color = 'green' if door_open else 'brown'
-                        elif model is not None:
-                            door_color = 'lightgreen'  # Destroyed doors
-                        ax.plot([x+0.25, x+0.75], [rows - y, rows - y], color=door_color, linewidth=2.5)
-                    elif wall_n:
-                        wall_color = 'black'
-                        if model is not None and (y, x, 0) in model.wall_damage:
-                            if model.wall_damage[(y, x, 0)] == 1:
-                                wall_color = 'orange'  # Damaged once
-                            elif model.wall_damage[(y, x, 0)] >= 2:
-                                wall_color = None  # Destroyed
-                        
-                        if wall_color:
-                            ax.plot([x, x+1], [rows - y, rows - y], color=wall_color, linewidth=2.5)
-                    
-                    # East direction
-                    if entry_e:
-                        ax.plot([x+1, x+1], [rows - y - 0.75, rows - y - 0.25], color='white', linewidth=4.0)
-                    elif door_e:
-                        door_color = 'brown'
-                        if model is not None and (y, x, 1) in model.door_states:
-                            door_open = model.door_states[(y, x, 1)] == "open"
-                            door_color = 'green' if door_open else 'brown'
-                        elif model is not None:
-                            door_color = 'lightgreen'
-                        ax.plot([x+1, x+1], [rows - y - 0.75, rows - y - 0.25], color=door_color, linewidth=2.5)
-                    elif wall_e:
-                        wall_color = 'black'
-                        if model is not None and (y, x, 1) in model.wall_damage:
-                            if model.wall_damage[(y, x, 1)] == 1:
-                                wall_color = 'orange'
-                            elif model.wall_damage[(y, x, 1)] >= 2:
-                                wall_color = None
-                        
-                        if wall_color:
-                            ax.plot([x+1, x+1], [rows - y - 1, rows - y], color=wall_color, linewidth=2.5)
-                    
-                    # South direction
-                    if entry_s:
-                        ax.plot([x+0.25, x+0.75], [rows - y - 1, rows - y - 1], color='white', linewidth=4.0)
-                    elif door_s:
-                        door_color = 'brown'
-                        if model is not None and (y, x, 2) in model.door_states:
-                            door_open = model.door_states[(y, x, 2)] == "open"
-                            door_color = 'green' if door_open else 'brown'
-                        elif model is not None:
-                            door_color = 'lightgreen'
-                        ax.plot([x+0.25, x+0.75], [rows - y - 1, rows - y - 1], color=door_color, linewidth=2.5)
-                    elif wall_s:
-                        wall_color = 'black'
-                        if model is not None and (y, x, 2) in model.wall_damage:
-                            if model.wall_damage[(y, x, 2)] == 1:
-                                wall_color = 'orange'
-                            elif model.wall_damage[(y, x, 2)] >= 2:
-                                wall_color = None
-                        
-                        if wall_color:
-                            ax.plot([x, x+1], [rows - y - 1, rows - y - 1], color=wall_color, linewidth=2.5)
-                    
-                    # West direction
-                    if entry_w:
-                        ax.plot([x, x], [rows - y - 0.75, rows - y - 0.25], color='white', linewidth=4.0)
-                    elif door_w:
-                        door_color = 'brown'
-                        if model is not None and (y, x, 3) in model.door_states:
-                            door_open = model.door_states[(y, x, 3)] == "open"
-                            door_color = 'green' if door_open else 'brown'
-                        elif model is not None:
-                            door_color = 'lightgreen'
-                        ax.plot([x, x], [rows - y - 0.75, rows - y - 0.25], color=door_color, linewidth=2.5)
-                    elif wall_w:
-                        wall_color = 'black'
-                        if model is not None and (y, x, 3) in model.wall_damage:
-                            if model.wall_damage[(y, x, 3)] == 1:
-                                wall_color = 'orange'
-                            elif model.wall_damage[(y, x, 3)] >= 2:
-                                wall_color = None
-                        
-                        if wall_color:
-                            ax.plot([x, x], [rows - y - 1, rows - y], color=wall_color, linewidth=2.5)
-                        
-        # Create legend elements
-        entry_line = plt.Line2D([0], [0], color='white', linewidth=4.0, label='Firefighter entry')
-        perimeter_patch = patches.Patch(color='#b3e6b3', label='Perimeter')
-        playable_patch = patches.Patch(color='#e6f7ff', label='Playable cell')
-        door_line = plt.Line2D([0], [0], color='brown', linewidth=2.5, label='Door')
-        wall_line = plt.Line2D([0], [0], color='black', linewidth=2.5, label='Wall')
-        fire_marker = plt.Line2D([0], [0], marker='o', markersize=15, markerfacecolor='#ff6600', 
-                                markeredgecolor='red', alpha=0.7, linestyle='', label='Fire')
-        smoke_marker = plt.Line2D([0], [0], marker='s', markersize=14, markerfacecolor='#a6a6a6', 
-                                markeredgecolor='#808080', alpha=0.6, linestyle='', label='Smoke')
-        victim_marker = plt.Line2D([0], [0], marker='D', markersize=12, markerfacecolor='#00cc66', 
-                                markeredgecolor='black', linestyle='', label='Victim (POI)')
-        false_alarm_marker = plt.Line2D([0], [0], marker='X', markersize=12, markerfacecolor='#cccccc', 
-                                markeredgecolor='black', linestyle='', label='False alarm (POI)')
-
-        if model is not None:
-            # Add firefighters to the grid and legend
-            firefighter_marker = plt.Line2D([0], [0], marker='o', markersize=15, 
-                                      markerfacecolor='blue', markeredgecolor='navy', 
-                                      alpha=0.7, linestyle='', label='Firefighter')
-            
-            ax.legend(handles=[perimeter_patch, playable_patch, entry_line, wall_line, 
-                              door_line, fire_marker, victim_marker, false_alarm_marker,
-                              firefighter_marker], 
-                      loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
-            
-            ax.set_xlim(-1, columns+1) 
-            ax.set_ylim(-1, rows+1)
-            
-            # Draw firefighters
-            for agent in model.schedule.agents:
-                x, y = agent.pos
-                ax.plot(x + 0.5, rows - y - 0.5, 'o', markersize=24, 
-                        markerfacecolor='blue', markeredgecolor='navy', alpha=0.7, zorder=25)
-                ax.text(x + 0.5, rows - y - 0.5, str(agent.unique_id), color='white', 
-                        fontsize=12, ha='center', va='center', zorder=26)
-            
-            ax.set_title(f"Simulation - Step {model.step_count}")
-        else:
-            ax.legend(handles=[perimeter_patch, playable_patch, entry_line, wall_line, door_line, 
-                            fire_marker, smoke_marker, victim_marker, false_alarm_marker], 
-                    loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=4)
-            ax.set_title("6×8 Scenario Map with Perimeter (8×10), Walls and Doors")
-            
-        # Final formatting
-        ax.set_xticks(range(columns))
-        ax.set_yticks(range(rows))
-        ax.set_xticklabels(range(columns))
-        ax.set_yticklabels(range(rows - 1, -1, -1))
-        ax.set_aspect('equal')
-        ax.grid(False)
-        plt.tight_layout()
-        return fig, ax
+                    row += " . "
+            print(row)
+        print()
+        
+        # Estado de bomberos
+        print("ESTADO DE BOMBEROS:")
+        for agent in model.schedule.agents:
+            status = "Con víctima" if agent.carrying else "Sin víctima"
+            x, y = agent.pos
+            conditions = []
+            if model.grid_state[y][x]["fire"]: conditions.append("FUEGO")
+            if model.grid_state[y][x]["smoke"]: conditions.append("HUMO")
+            cell_state = f"[{', '.join(conditions)}]" if conditions else ""
+            print(f"Bombero {agent.unique_id}: Pos({x},{y}) | AP: {agent.ap}/{agent.max_ap} | {status} {cell_state}")
 
     @staticmethod
     def visualize_simulation(model):
-        """Visualizes the current state of the simulation, including firefighters"""
+        """Visualizes the current state of the simulation in both terminal and graphics"""
+        # Primero mostrar estado en terminal
+        Visualization.print_grid_state(model)
+        
+        # Luego mostrar visualización gráfica
         fig, ax = Visualization.visualize_grid_with_perimeter_and_doors(
-            model.scenario["grid_walls"], 
-            ScenarioParser.compute_door_positions(model.scenario["doors"]), 
+            model.scenario["grid_walls"],
+            ScenarioParser.compute_door_positions(model.scenario["doors"]),
             model.scenario["entries"],
-            model.scenario["fires"],   
+            model.scenario["fires"],
             model.scenario["pois"],
-            model  
+            model
         )
         plt.show()
-
 
 # Parse the complete scenario
 scenario = ScenarioParser.parse_scenario(scenario_content)
 
-# Calculate door positions for visualization
-door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
-
-# Show final map with doors
-Visualization.visualize_grid_with_perimeter_and_doors(
-    scenario["grid_walls"], 
-    door_positions, 
-    scenario["entries"],
-    scenario["fires"],   
-    scenario["pois"]      
-)
-
-# Build the grid state
-print("\n=== BUILDING GRID STATE ===")
-grid_state = ScenarioParser.build_grid_state(scenario)
-
-
-# Additional information
-print("\nScenario summary and grid state:")
-print(f"Grid dimensions: {scenario['grid_walls'].shape}")
-print(f"Number of POIs: {len(scenario['pois'])}")
-print(f"Number of initial fires: {len(scenario['fires'])}")
-print(f"Number of doors: {len(scenario['doors'])}")
-print(f"Number of entries: {len(scenario['entries'])}")
-
-
-print("\n=== STARTING SIMULATION ===")
-
-# Initialize the model with our scenario
+# Initialize model
 model = FireRescueModel(scenario)
 
-# Show initial state only once
-print("\n=== SIMULATION IN PROGRESS ===")
-print("\n--- Initial state ---")
+print("\n=== INICIANDO SIMULACIÓN ===")
 
-# Only show initial visualization
-plt.figure(figsize=(12, 10))
-Visualization.visualize_grid_with_perimeter_and_doors(
-    scenario["grid_walls"], 
-    door_positions, 
-    scenario["entries"],
-    scenario["fires"],   
-    scenario["pois"],
-    model
-)
-plt.show()
+# Mostrar estado inicial
+print("\n=== ESTADO INICIAL ===")
+Visualization.print_grid_state(model)
 
-
-# Continuous simulation until victory or defeat
+# Simular hasta victoria o derrota
 step = 1
 while not model.simulation_over and step < 50:
-    print(f"\n--- Paso {step} ---")
+    print(f"\n=== TURNO {step} ===")
     model.step()
-    Visualization.visualize_simulation(model)  
+    Visualization.print_grid_state(model)
     step += 1
 
-print("\n=== SIMULATION FINISHED ===")
-print(f"Total steps executed: {step-1}")
-print(f"Victims rescued: {model.victims_rescued}")
-print(f"Victims lost: {model.victims_lost}")
-print(f"Accumulated wall damage: {model.damage_counters}")
+print("\n=== SIMULACIÓN TERMINADA ===")
+print(f"Total de turnos: {step-1}")
+print(f"Víctimas rescatadas: {model.victims_rescued}")
+print(f"Víctimas perdidas: {model.victims_lost}")
+print(f"Daño estructural total: {model.damage_counters}")
+
+if model.simulation_over:
+    if model.victims_rescued >= 7:
+        print(f"\n¡VICTORIA! Se rescataron {model.victims_rescued} víctimas.")
+    elif model.victims_lost >= 4:
+        print(f"\nDERROTA: Se perdieron {model.victims_lost} víctimas.")
+    else:
+        print(f"\nDERROTA: Colapso estructural ({model.damage_counters} puntos de daño)")

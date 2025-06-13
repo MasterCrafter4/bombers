@@ -1,114 +1,31 @@
 {
   "frame": 236,
-  "turn": 14,
+  "turn": 13,
   "action": {
-    "type": "end_of_turn"
+    "firefighter_id": 1,
+    "type": "move",
+    "ap_before": 3,
+    "ap_after": 1,
+    "from": [
+      8,
+      0
+    ],
+    "to": [
+      8,
+      1
+    ]
   },
   "firefighters": [
     {
-      "id": 0,
-      "x": 8,
-      "y": 3,
-      "ap": 4,
-      "carrying": false
-    },
-    {
-      "id": 5,
-      "x": 6,
-      "y": 0,
-      "ap": 5,
-      "carrying": false
-    },
-    {
       "id": 1,
-      "x": 6,
-      "y": 0,
-      "ap": 5,
-      "carrying": false
-    },
-    {
-      "id": 4,
-      "x": 7,
-      "y": 3,
-      "ap": 5,
-      "carrying": true
-    },
-    {
-      "id": 2,
-      "x": 6,
-      "y": 0,
-      "ap": 5,
-      "carrying": false
-    },
-    {
-      "id": 3,
-      "x": 9,
-      "y": 0,
-      "ap": 4,
-      "carrying": false
-    }
-  ],
-  "grid_changes": [
-    {
-      "x": 7,
-      "y": 1,
-      "fire": true,
-      "smoke": false
-    },
-    {
-      "x": 7,
-      "y": 3,
-      "smoke": true,
-      "poi": null
-    },
-    {
       "x": 8,
-      "y": 3,
-      "fire": false,
-      "smoke": true
-    },
-    {
-      "x": 5,
-      "y": 5,
-      "fire": true,
-      "smoke": false
-    },
-    {
-      "x": 3,
-      "y": 6,
-      "fire": true,
-      "smoke": false
-    },
-    {
-      "x": 4,
-      "y": 6,
-      "fire": true,
-      "smoke": false
+      "y": 1,
+      "ap": 1,
+      "carrying": false
     }
   ],
+  "grid_changes": [],
   "wall_damage": [],
   "doors": [],
-  "pois": [
-    {
-      "x": 5,
-      "y": 4,
-      "type": "f"
-    },
-    {
-      "x": 3,
-      "y": 2,
-      "type": "f"
-    },
-    {
-      "x": 4,
-      "y": 5,
-      "type": "v"
-    }
-  ],
-  "summary": {
-    "rescued": 1,
-    "lost": 3,
-    "damage": 22,
-    "pois_in_deck": 8
-  }
+  "pois": []
 }

@@ -6,7 +6,7 @@
   },
   "firefighters": [
     {
-      "id": 4,
+      "id": 0,
       "x": 6,
       "y": 1,
       "ap": 8,
@@ -27,16 +27,16 @@
       "carrying": false
     },
     {
-      "id": 0,
-      "x": 6,
-      "y": 1,
+      "id": 3,
+      "x": 3,
+      "y": 6,
       "ap": 8,
       "carrying": false
     },
     {
-      "id": 3,
-      "x": 3,
-      "y": 6,
+      "id": 4,
+      "x": 6,
+      "y": 1,
       "ap": 8,
       "carrying": false
     },
