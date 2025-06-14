@@ -1,9 +1,8 @@
-## [0.0.0] - 10/11/2022
+## [0.0.0] - 05/06/2025
 
 ### Added 
 
-- Commit inicial del proyecto (10/11/2022).
-- Primer commit del proyecto (10/11/2022).
-- Actualización inicial de la escena (10/11/2022).
-- Creación de prefabs (10/11/2022).
-- Update North Prefab (10/11/2022).
+- Commit inicial del proyecto (22/05/2025).
+- Primer commit del proyecto (27/05/2025).
+- Creacion del proyecto base Unity (27/05/2025).
+- Avance de scripts para la conexion con api bombers (05/06/2025)

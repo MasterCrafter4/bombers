@@ -1,0 +1,34 @@
+{
+  "frame": 69,
+  "turn": 6,
+  "action": {
+    "firefighter_id": 5,
+    "type": "extinguish_fire",
+    "ap_before": 6,
+    "ap_after": 4,
+    "target": [
+      2,
+      2
+    ]
+  },
+  "firefighters": [
+    {
+      "id": 5,
+      "x": 2,
+      "y": 3,
+      "ap": 4,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [
+    {
+      "x": 2,
+      "y": 2,
+      "fire": false,
+      "smoke": false
+    }
+  ],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}

@@ -1,6 +1,10 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Provides orbit camera controls around a target object with zoom and tilt functionality.
+/// Uses keyboard input for smooth camera movement and positioning.
+/// </summary>
 public class OrbitCamera : MonoBehaviour
 {
     public Transform target;
@@ -18,21 +22,21 @@ public class OrbitCamera : MonoBehaviour
 
     private float currentAngle = 0f;
 
+    /// <summary>
+    /// Updates camera position and rotation based on keyboard input every frame after all other updates
+    /// </summary>
     void LateUpdate()
     {
         if (target == null) return;
         var kb = Keyboard.current;
         if (kb == null) return;
 
-        // Orbitar
         if (kb.aKey.isPressed) currentAngle -= orbitSpeed * Time.deltaTime;
         if (kb.dKey.isPressed) currentAngle += orbitSpeed * Time.deltaTime;
 
-        // Zoom
         if (kb.wKey.isPressed) distance = Mathf.Max(minDistance, distance - zoomSpeed * Time.deltaTime);
         if (kb.sKey.isPressed) distance = Mathf.Min(maxDistance, distance + zoomSpeed * Time.deltaTime);
 
-        // Calcular offset horizontal
         float rad = currentAngle * Mathf.Deg2Rad;
         Vector3 horizontalOffset = new Vector3(
             Mathf.Sin(rad) * distance,
@@ -40,16 +44,12 @@ public class OrbitCamera : MonoBehaviour
             Mathf.Cos(rad) * distance
         );
 
-        // Offset total con altura
         Vector3 offset = horizontalOffset + Vector3.up * cameraHeight;
 
-        // 1) Posicionar la cámara
         transform.position = target.position + offset;
 
-        // 2) Mirar siempre al target
         transform.LookAt(target);
 
-        // 3) Inclinar (tilt) sobre el eje local X
         transform.Rotate(Vector3.right, tiltAngle, Space.Self);
     }
 }
