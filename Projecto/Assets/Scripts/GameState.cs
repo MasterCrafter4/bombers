@@ -8,8 +8,8 @@ public class GameState
     public int turn;
     public ActionData action;
     public List<Firefighter> firefighters;
-    public Grid grid; // Solo aparece en estado inicial
-    public List<Cell> grid_changes; // Cambios puntuales
+    public Grid grid;
+    public List<GridChange> grid_changes;
     public List<WallDamage> wall_damage;
     public List<Door> doors;
     public List<Poi> pois;
@@ -19,12 +19,16 @@ public class GameState
 [Serializable]
 public class ActionData
 {
-    public string type; // "initial_state", "move", "end_of_turn", etc.
+    public string type;
     public int firefighter_id;
     public int ap_before;
     public int ap_after;
     public int[] from;
     public int[] to;
+    public int[] target;
+    public string poi_type; 
+    public string result;
+    public string message;
 }
 
 [Serializable]
@@ -50,11 +54,11 @@ public class Cell
 {
     public int x;
     public int y;
-    public List<bool> walls; // [north, east, south, west]
+    public List<bool> walls;
     public bool door;
     public bool fire;
     public bool smoke;
-    public string poi; // puede ser "v", "f", o null
+    public string poi;
 }
 
 [Serializable]
@@ -62,7 +66,7 @@ public class Door
 {
     public int[] from;
     public int[] to;
-    public string state; // "open" o "closed"
+    public string state; 
 }
 
 [Serializable]
@@ -87,5 +91,17 @@ public class Summary
     public int rescued;
     public int lost;
     public int damage;
-    public int pois_in_deck;
+    public int pois_active;
 }
+
+
+[System.Serializable]
+public class GridChange
+{
+    public int x;
+    public int y;
+    public bool fire;
+    public bool smoke;
+    public string poi;
+}
+
