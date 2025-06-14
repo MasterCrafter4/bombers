@@ -4,218 +4,48 @@ from mesa.space import MultiGrid
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-
-
-
+import csv
+import time
+from datetime import datetime
 
 class JSONExporter:
-    """Class to export game state to JSON for API responses only"""
+    
     
     def __init__(self):
         self.frame_counter = 0
     
-    def save_frame(self, data):
-        """Returns data without saving to file"""
+    def action_frame(self, model, agent_id, action_type, **kwargs):
+       
         self.frame_counter += 1
-        return data
-    
-    def initial_state(self, model):
-        """Generates the JSON for the initial game state"""
-        firefighters = []
-        for agent in model.schedule.agents:
-            x, y = agent.pos
-            firefighters.append({
-                "id": agent.unique_id,
-                "x": x,
-                "y": y,
-                "ap": agent.ap,
-                "carrying": agent.carrying
-            })
         
-        cells = []
-        for y in range(model.grid.height):
-            for x in range(model.grid.width):
-                if x < model.grid_state.shape[1] and y < model.grid_state.shape[0]:
-                    cell = model.grid_state[y, x]
-                    cell_json = {
-                        "x": x,
-                        "y": y,
-                        "walls": [bool(wall) for wall in cell["walls"]],
-                        "door": cell["door"],
-                        "fire": cell["fire"],
-                        "smoke": cell["smoke"],
-                        "poi": cell["poi"]
-                    }
-                    cells.append(cell_json)
-        
-        doors = []
-        door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
-        for (r1, c1), (r2, c2) in model.scenario["doors"]:
-            door_state = "closed"
-            for pos in door_positions:
-                if pos in model.door_states:
-                    door_state = model.door_states[pos]
-            
-            doors.append({
-                "from": [c1, r1],
-                "to": [c2, r2],
-                "state": door_state
-            })
-        
-        pois = []
-        for y, x, poi_type in model.scenario["pois"]:
-            pois.append({
-                "x": x,
-                "y": y,
-                "type": poi_type
-            })
-        
-        entries = [[x, y] for y, x in model.scenario["entries"]]
-        
-        data = {
-            "frame": 0,
-            "turn": 0,
-            "action": {
-                "type": "initial_state"
-            },
-            "firefighters": firefighters,
-            "grid": {
-                "width": model.grid.width,
-                "height": model.grid.height,
-                "cells": cells
-            },
-            "doors": doors,
-            "pois": pois,
-            "entries": entries,
-            "wall_damage": [],
-            "summary": {
-                "rescued": 0,
-                "lost": 0,
-                "damage": 0,
-                "pois_active": len(model.scenario["pois"]),
-                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 15
-            }
-        }
-        
-        return self.save_frame(data)
-    
-    def action_frame(self, model, firefighter_id, action_type, **kwargs):
-        """Generates the JSON for an individual action"""
-        agent = None
-        for a in model.schedule.agents:
-            if a.unique_id == firefighter_id:
-                agent = a
-                break
-        
-        # Si es una acción especial como "end_of_turn" o knockdown, no necesitamos un bombero específico
-        if agent is None and firefighter_id != -1:
-            # Intentar encontrar bombero por coordenadas en caso de knockdown
-            if "knockdown_coords" in kwargs:
-                for a in model.schedule.agents:
-                    x, y = a.pos
-                    kx, ky = kwargs["knockdown_coords"]
-                    if x == kx and y == ky:
-                        agent = a
-                        firefighter_id = a.unique_id
-                        break
-        
-        # Preparar los datos básicos del frame
+        # Basic frame data
         data = {
             "frame": self.frame_counter,
             "turn": model.step_count,
             "action": {
-                "type": action_type
+                "type": action_type,
+                "agent": agent_id,
             },
-            "grid_changes": kwargs.get("grid_changes", []),
-            "wall_damage": kwargs.get("wall_damage", []),
-            "doors": kwargs.get("doors", []),
-            "pois": kwargs.get("pois", [])
-        }
-        
-        # Añadir información del bombero si existe
-        if agent:
-            x, y = agent.pos
-            data["action"]["firefighter_id"] = firefighter_id
-            data["action"]["ap_before"] = kwargs.get("ap_before", 0)
-            data["action"]["ap_after"] = kwargs.get("ap_after", 0)
-            
-            data["firefighters"] = [{
-                "id": firefighter_id,
-                "x": x,
-                "y": y,
-                "ap": agent.ap,
-                "carrying": agent.carrying
-            }]
-            
-            # Añadir todos los bomberos si es un knockdown o fin de turno
-            if action_type in ["knockdown", "end_of_turn"]:
-                data["firefighters"] = []
-                for a in model.schedule.agents:
-                    x, y = a.pos
-                    data["firefighters"].append({
-                        "id": a.unique_id,
-                        "x": x,
-                        "y": y,
-                        "ap": a.ap,
-                        "carrying": a.carrying
-                    })
-        else:
-            # Para acciones sin bombero (como end_of_turn), incluir todos
-            if action_type in ["end_of_turn", "smoke_placement", "fire_propagation", "flashover"]:
-                data["firefighters"] = []
-                for a in model.schedule.agents:
-                    x, y = a.pos
-                    data["firefighters"].append({
-                        "id": a.unique_id,
-                        "x": x,
-                        "y": y,
-                        "ap": a.ap,
-                        "carrying": a.carrying
-                    })
-        
-        # Datos específicos para cada tipo de acción
-        if action_type == "move":
-            data["action"]["from"] = kwargs.get("from_pos", [0, 0])
-            data["action"]["to"] = kwargs.get("to", [0, 0])
-        
-        elif action_type in ["extinguish_fire", "convert_to_smoke", "remove_smoke"]:
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-            
-        elif action_type == "cut_wall":
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-            data["action"]["direction"] = kwargs.get("direction", 0)
-            
-        elif action_type == "pickup_poi":
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-            data["action"]["poi_type"] = kwargs.get("poi_type", "")
-            
-        elif action_type == "knockdown":
-            data["action"]["message"] = kwargs.get("message", "Firefighter knocked down")
-            data["action"]["ambulance_pos"] = kwargs.get("ambulance_pos", [9, 0])
-            
-        elif action_type == "smoke_placement":
-            data["action"]["message"] = kwargs.get("message", "Smoke placed")
-            
-        elif action_type == "fire_propagation":
-            data["action"]["message"] = kwargs.get("message", "Fire propagation")
-            
-        elif action_type == "flashover":
-            data["action"]["message"] = kwargs.get("message", "Flashover occurred")
-        
-        # Información resumen al final del turno
-        if action_type == "end_of_turn":
-            data["summary"] = {
-                "rescued": model.victims_rescued,
-                "lost": model.victims_lost,
+            "state": {
+                "victims_rescued": model.victims_rescued,
+                "victims_lost": model.victims_lost,
                 "damage": model.damage_counters,
                 "pois_active": len(model.scenario["pois"]),
-                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
+                "fires_active": len(model.scenario["fires"])
             }
+        }
         
-        return self.save_frame(data)
+        # Add agent-specific data if available
+        if agent_id >= 0:
+            agent = next((a for a in model.schedule.agents if a.unique_id == agent_id), None)
+            if agent:
+                data["action"]["position"] = list(agent.pos)
+                data["action"]["ap"] = agent.ap
+                data["action"]["carrying"] = agent.carrying
+        
+        return data
     
     def game_over(self, model, result, message):
-        """Generates the JSON for game over"""
         data = {
             "frame": self.frame_counter,
             "turn": model.step_count,
@@ -224,17 +54,13 @@ class JSONExporter:
                 "result": result,
                 "message": message
             },
-            "summary": {
-                "rescued": model.victims_rescued,
-                "lost": model.victims_lost,
-                "damage": model.damage_counters,
-                "pois_active": len(model.scenario["pois"]),
-                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
+            "final_state": {
+                "victims_rescued": model.victims_rescued,
+                "victims_lost": model.victims_lost,
+                "damage": model.damage_counters
             }
         }
-        
-        return self.save_frame(data)
-
+        return data
 
 # Scenario content (full format)
 scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
@@ -273,7 +99,6 @@ scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
 class ScenarioParser:
     @staticmethod
     def _parse_grid_walls(lines):
-        """Parses the first 6 lines of the scenario to get the walls"""
         original_grid = np.zeros((6, 8, 4), dtype=int)
         for i, line in enumerate(lines[:6]):
             for j, cell in enumerate(line.strip().split()):
@@ -289,7 +114,6 @@ class ScenarioParser:
 
     @staticmethod
     def _parse_pois(lines):
-        """Parses the Points of Interest (POI) lines"""
         pois = []
         poi_lines = lines[6:9]  
         for line in poi_lines:
@@ -302,7 +126,6 @@ class ScenarioParser:
 
     @staticmethod
     def _parse_fires(lines):
-        """Parses the initial fire lines"""
         fires = []
         fire_lines = lines[9:19]  
         for line in fire_lines:
@@ -315,7 +138,6 @@ class ScenarioParser:
 
     @staticmethod
     def _parse_doors(lines):
-        """Parses the door lines"""
         doors = []
         door_lines = lines[19:27]  
         for line in door_lines:
@@ -329,7 +151,6 @@ class ScenarioParser:
 
     @staticmethod
     def _parse_entries(lines):
-        """Parses the firefighter entry lines"""
         entries = []
         entry_lines = lines[27:31]  
         for line in entry_lines:
@@ -342,7 +163,6 @@ class ScenarioParser:
 
     @staticmethod
     def parse_scenario(scenario_text):
-        """Main function that parses the entire scenario content"""
         lines = scenario_text.strip().split('\n')
         if len(lines) < 31:
             return None
@@ -364,7 +184,6 @@ class ScenarioParser:
     
     @staticmethod
     def compute_door_positions(doors):
-        """Calculates door positions for visualization"""
         door_positions = []
         for (r1, c1), (r2, c2) in doors:
             if r1 == r2:  
@@ -382,7 +201,6 @@ class ScenarioParser:
 
     @staticmethod
     def build_grid_state(scenario):
-        """Builds a grid where each cell is a dictionary with complete state"""
         rows, columns = scenario["grid_walls"].shape[:2]
         
         grid_state = np.empty((rows, columns), dtype=object)
@@ -2257,59 +2075,62 @@ class Visualization:
         """
         pass
 
+def run_multiple_simulations(num_simulations=1000):
+    """
+    Ejecuta múltiples simulaciones y guarda los resultados en CSV
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"simulation_results_{timestamp}.csv"
+    
+    headers = ['simulation_id', 'result', 'total_turns', 'victims_rescued', 
+              'victims_lost', 'structural_damage']
+
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        
+        for sim_id in range(num_simulations):
+            try:
+                scenario = ScenarioParser.parse_scenario(scenario_content)
+                model = FireRescueModel(scenario, visualize_frames=False)
+                
+                step = 1
+                while not model.simulation_over and step < 50:
+                    model.step()
+                    step += 1
+                
+                # Determinar resultado
+                if model.victims_rescued >= 7:
+                    result = "VICTORIA"
+                elif model.victims_lost >= 4:
+                    result = "DERROTA_VICTIMAS"
+                else:
+                    result = "DERROTA_ESTRUCTURAL"
+                
+                writer.writerow({
+                    'simulation_id': sim_id + 1,
+                    'result': result,
+                    'total_turns': step - 1,
+                    'victims_rescued': model.victims_rescued,
+                    'victims_lost': model.victims_lost,
+                    'structural_damage': model.damage_counters
+                })
+            
+            except Exception as e:
+                print(f"Error in simulation {sim_id + 1}: {str(e)}")
+                writer.writerow({
+                    'simulation_id': sim_id + 1,
+                    'result': 'ERROR',
+                    'total_turns': -1,
+                    'victims_rescued': -1,
+                    'victims_lost': -1,
+                    'structural_damage': -1
+                })
+            
+            if (sim_id + 1) % 100 == 0:
+                print(f"Completed {sim_id + 1}/{num_simulations} simulations")
+    
+    print(f"\nSimulations complete. Results saved to {csv_filename}")
+
 if __name__ == "__main__":
-    # Parse the complete scenario
-    scenario = ScenarioParser.parse_scenario(scenario_content)
-
-    # Configuración de visualización por frames
-    import sys
-    visualize_frames = True
-    if len(sys.argv) > 1 and sys.argv[1] == "--no-frames":
-        visualize_frames = False
-    
-    print(f"\nVisualización por frames: {'Activada' if visualize_frames else 'Desactivada'}")
-
-    # Calculate door positions for visualization
-    door_positions = ScenarioParser.compute_door_positions(scenario["doors"])
-
-    # Show final map with doors
-    Visualization.visualize_grid_with_perimeter_and_doors(
-        scenario["grid_walls"], 
-        door_positions, 
-        scenario["entries"],
-        scenario["fires"],   
-        scenario["pois"]      
-    )
-    plt.show()
-
-    # Build the grid state
-    print("\n=== BUILDING GRID STATE ===")
-    grid_state = ScenarioParser.build_grid_state(scenario)
-
-    print("\n=== STARTING SIMULATION ===")
-
-    # Initialize the model with our scenario
-    model = FireRescueModel(scenario, visualize_frames=visualize_frames)
-
-    # Show initial state
-    print("\n=== SIMULATION IN PROGRESS ===")
-    print("\n--- Initial state ---")
-    Visualization.visualize_simulation(model, "Estado Inicial")
-    
-    # Continuous simulation until victory or defeat
-    step = 1
-    while not model.simulation_over and step < 50:
-        print(f"\n--- Paso {step} ---")
-        model.step()
-        step += 1
-    
-
-    print("\n=== SIMULATION FINISHED ===")
-    print(f"Total steps executed: {step-1}")
-    print(f"Victims rescued: {model.victims_rescued}")
-    print(f"Victims lost: {model.victims_lost}")
-    print(f"Accumulated wall damage: {model.damage_counters}")
-else:
-    # Cuando se importa desde otro archivo (como el servidor), deshabilitar visualización
-    import matplotlib
-    matplotlib.use('Agg')  
+    run_multiple_simulations(1000)

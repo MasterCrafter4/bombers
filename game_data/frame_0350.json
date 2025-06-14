@@ -1,0 +1,14 @@
+{
+  "frame": 350,
+  "turn": 17,
+  "action": {
+    "type": "game_over",
+    "result": "defeat_collapse",
+    "message": "Building collapsed with 25 damage points."
+  },
+  "summary": {
+    "rescued": 3,
+    "lost": 3,
+    "damage": 25
+  }
+}

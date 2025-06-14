@@ -1,31 +1,14 @@
 {
   "frame": 176,
-  "turn": 13,
+  "turn": 8,
   "action": {
-    "firefighter_id": 1,
-    "type": "move",
-    "ap_before": 3,
-    "ap_after": 2,
-    "from": [
-      0,
-      1
-    ],
-    "to": [
-      0,
-      0
-    ]
+    "type": "game_over",
+    "result": "defeat_victims",
+    "message": "4 victims were lost in the fire."
   },
-  "firefighters": [
-    {
-      "id": 1,
-      "x": 0,
-      "y": 0,
-      "ap": 2,
-      "carrying": false
-    }
-  ],
-  "grid_changes": [],
-  "wall_damage": [],
-  "doors": [],
-  "pois": []
+  "summary": {
+    "rescued": 1,
+    "lost": 4,
+    "damage": 8
+  }
 }

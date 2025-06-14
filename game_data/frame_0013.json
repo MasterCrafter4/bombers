@@ -3,17 +3,22 @@
   "turn": 2,
   "action": {
     "firefighter_id": 2,
-    "type": "damage_wall",
-    "ap_before": 8,
-    "ap_after": 6
+    "type": "pickup_poi",
+    "ap_before": 5,
+    "ap_after": 3,
+    "target": [
+      8,
+      5
+    ],
+    "poi_type": "v"
   },
   "firefighters": [
     {
       "id": 2,
       "x": 8,
-      "y": 4,
-      "ap": 6,
-      "carrying": false
+      "y": 5,
+      "ap": 3,
+      "carrying": true
     }
   ],
   "grid_changes": [],

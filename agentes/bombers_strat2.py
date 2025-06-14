@@ -7,215 +7,221 @@ import matplotlib.patches as patches
 import json
 import os
 import heapq
+import csv
+import time
+from datetime import datetime
+import signal
+from contextlib import contextmanager
+import signal
 
-class JSONExporter:
-    """Class to export game state to JSON files for Unity"""
+# class JSONExporter:
+#     """Class to export game state to JSON files for Unity"""
     
-    def __init__(self, output_dir="game_data"):
-        self.frame_counter = 0
-        self.output_dir = output_dir
+#     def __init__(self, output_dir="game_data"):
+#         self.frame_counter = 0
+#         self.output_dir = output_dir
         
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+#         if not os.path.exists(output_dir):
+#             os.makedirs(output_dir)
     
-    def save_frame(self, data):
-        """Saves a frame as a JSON file"""
-        filename = os.path.join(self.output_dir, f"frame_{self.frame_counter:04d}.json")
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        self.frame_counter += 1
-        return data
+#     def save_frame(self, data):
+#         """Saves a frame as a JSON file"""
+#         filename = os.path.join(self.output_dir, f"frame_{self.frame_counter:04d}.json")
+#         with open(filename, "w", encoding="utf-8") as f:
+#             json.dump(data, f, indent=2)
+#         self.frame_counter += 1
+#         return data
     
-    def initial_state(self, model):
-        """Generates the JSON for the initial game state"""
-        firefighters = []
-        for agent in model.schedule.agents:
-            x, y = agent.pos
-            firefighters.append({
-                "id": agent.unique_id,
-                "x": x,
-                "y": y,
-                "ap": agent.ap,
-                "carrying": agent.carrying
-            })
+#     def initial_state(self, model):
+#         """Generates the JSON for the initial game state"""
+#         firefighters = []
+#         for agent in model.schedule.agents:
+#             x, y = agent.pos
+#             firefighters.append({
+#                 "id": agent.unique_id,
+#                 "x": x,
+#                 "y": y,
+#                 "ap": agent.ap,
+#                 "carrying": agent.carrying
+#             })
         
-        cells = []
-        for y in range(model.grid.height):
-            for x in range(model.grid.width):
-                if x < model.grid_state.shape[1] and y < model.grid_state.shape[0]:
-                    cell = model.grid_state[y, x]
-                    cell_json = {
-                        "x": x,
-                        "y": y,
-                        "walls": [bool(wall) for wall in cell["walls"]],
-                        "door": cell["door"],
-                        "fire": cell["fire"],
-                        "smoke": cell["smoke"],
-                        "poi": cell["poi"]
-                    }
-                    cells.append(cell_json)
+#         cells = []
+#         for y in range(model.grid.height):
+#             for x in range(model.grid.width):
+#                 if x < model.grid_state.shape[1] and y < model.grid_state.shape[0]:
+#                     cell = model.grid_state[y, x]
+#                     cell_json = {
+#                         "x": x,
+#                         "y": y,
+#                         "walls": [bool(wall) for wall in cell["walls"]],
+#                         "door": cell["door"],
+#                         "fire": cell["fire"],
+#                         "smoke": cell["smoke"],
+#                         "poi": cell["poi"]
+#                     }
+#                     cells.append(cell_json)
         
-        doors = []
-        door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
-        for (r1, c1), (r2, c2) in model.scenario["doors"]:
-            door_state = "closed"
-            for pos in door_positions:
-                if pos in model.door_states:
-                    door_state = model.door_states[pos]
+#         doors = []
+#         door_positions = ScenarioParser.compute_door_positions(model.scenario["doors"])
+#         for (r1, c1), (r2, c2) in model.scenario["doors"]:
+#             door_state = "closed"
+#             for pos in door_positions:
+#                 if pos in model.door_states:
+#                     door_state = model.door_states[pos]
             
-            doors.append({
-                "from": [c1, r1],
-                "to": [c2, r2],
-                "state": door_state
-            })
+#             doors.append({
+#                 "from": [c1, r1],
+#                 "to": [c2, r2],
+#                 "state": door_state
+#             })
         
-        pois = []
-        for y, x, poi_type in model.scenario["pois"]:
-            pois.append({
-                "x": x,
-                "y": y,
-                "type": poi_type
-            })
+#         pois = []
+#         for y, x, poi_type in model.scenario["pois"]:
+#             pois.append({
+#                 "x": x,
+#                 "y": y,
+#                 "type": poi_type
+#             })
         
-        entries = [[x, y] for y, x in model.scenario["entries"]]
+#         entries = [[x, y] for y, x in model.scenario["entries"]]
         
-        data = {
-            "frame": 0,
-            "turn": 0,
-            "action": {
-                "type": "initial_state"
-            },
-            "firefighters": firefighters,
-            "grid": {
-                "width": model.grid.width,
-                "height": model.grid.height,
-                "cells": cells
-            },
-            "doors": doors,
-            "pois": pois,
-            "entries": entries,
-            "wall_damage": [],
-            "summary": {
-                "rescued": 0,
-                "lost": 0,
-                "damage": 0,
-                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 15
-            }
-        }
+#         data = {
+#             "frame": 0,
+#             "turn": 0,
+#             "action": {
+#                 "type": "initial_state"
+#             },
+#             "firefighters": firefighters,
+#             "grid": {
+#                 "width": model.grid.width,
+#                 "height": model.grid.height,
+#                 "cells": cells
+#             },
+#             "doors": doors,
+#             "pois": pois,
+#             "entries": entries,
+#             "wall_damage": [],
+#             "summary": {
+#                 "rescued": 0,
+#                 "lost": 0,
+#                 "damage": 0,
+#                 "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 15
+#             }
+#         }
         
-        return self.save_frame(data)
+#         return self.save_frame(data)
     
-    def action_frame(self, model, firefighter_id, action_type, **kwargs):
-        """Generates the JSON for an individual action"""
-        agent = None
-        for a in model.schedule.agents:
-            if a.unique_id == firefighter_id:
-                agent = a
-                break
+#     def action_frame(self, model, firefighter_id, action_type, **kwargs):
+#         """Generates the JSON for an individual action"""
+#         agent = None
+#         for a in model.schedule.agents:
+#             if a.unique_id == firefighter_id:
+#                 agent = a
+#                 break
         
-        if not agent:
-            return None
+#         if not agent:
+#             return None
         
-        x, y = agent.pos
+#         x, y = agent.pos
         
-        data = {
-            "frame": self.frame_counter,
-            "turn": model.step_count,
-            "action": {
-                "firefighter_id": firefighter_id,
-                "type": action_type,
-                "ap_before": kwargs.get("ap_before", 0),
-                "ap_after": kwargs.get("ap_after", 0)
-            },
-            "firefighters": [
-                {
-                    "id": firefighter_id,
-                    "x": x,
-                    "y": y,
-                    "ap": agent.ap,
-                    "carrying": agent.carrying
-                }
-            ],
-            "grid_changes": kwargs.get("grid_changes", []),
-            "wall_damage": kwargs.get("wall_damage", []),
-            "doors": kwargs.get("doors", []),
-            "pois": kwargs.get("pois", [])
-        }
+#         data = {
+#             "frame": self.frame_counter,
+#             "turn": model.step_count,
+#             "action": {
+#                 "firefighter_id": firefighter_id,
+#                 "type": action_type,
+#                 "ap_before": kwargs.get("ap_before", 0),
+#                 "ap_after": kwargs.get("ap_after", 0)
+#             },
+#             "firefighters": [
+#                 {
+#                     "id": firefighter_id,
+#                     "x": x,
+#                     "y": y,
+#                     "ap": agent.ap,
+#                     "carrying": agent.carrying
+#                 }
+#             ],
+#             "grid_changes": kwargs.get("grid_changes", []),
+#             "wall_damage": kwargs.get("wall_damage", []),
+#             "doors": kwargs.get("doors", []),
+#             "pois": kwargs.get("pois", [])
+#         }
         
-        if action_type == "move":
-            data["action"]["from"] = kwargs.get("from_pos", [0, 0])
-            data["action"]["to"] = kwargs.get("to", [x, y])
-        elif action_type in ["extinguish_fire", "convert_to_smoke", "remove_smoke"]:
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-        elif action_type == "pickup_poi":
-            data["action"]["target"] = kwargs.get("target", [0, 0])
-            data["action"]["poi_type"] = kwargs.get("poi_type", "")
+#         if action_type == "move":
+#             data["action"]["from"] = kwargs.get("from_pos", [0, 0])
+#             data["action"]["to"] = kwargs.get("to", [x, y])
+#         elif action_type in ["extinguish_fire", "convert_to_smoke", "remove_smoke"]:
+#             data["action"]["target"] = kwargs.get("target", [0, 0])
+#         elif action_type == "pickup_poi":
+#             data["action"]["target"] = kwargs.get("target", [0, 0])
+#             data["action"]["poi_type"] = kwargs.get("poi_type", "")
         
-        return self.save_frame(data)
+#         return self.save_frame(data)
     
-    def end_of_turn(self, model, grid_changes=None):
-        """Generates the JSON for the end of turn"""
-        firefighters = []
-        for agent in model.schedule.agents:
-            x, y = agent.pos
-            firefighters.append({
-                "id": agent.unique_id,
-                "x": x,
-                "y": y,
-                "ap": agent.ap,
-                "carrying": agent.carrying
-            })
+#     def end_of_turn(self, model, grid_changes=None):
+#         """Generates the JSON for the end of turn"""
+#         firefighters = []
+#         for agent in model.schedule.agents:
+#             x, y = agent.pos
+#             firefighters.append({
+#                 "id": agent.unique_id,
+#                 "x": x,
+#                 "y": y,
+#                 "ap": agent.ap,
+#                 "carrying": agent.carrying
+#             })
         
-        if grid_changes is None:
-            grid_changes = []
+#         if grid_changes is None:
+#             grid_changes = []
         
-        pois = []
-        for y, x, poi_type in model.scenario["pois"]:
-            pois.append({
-                "x": x,
-                "y": y,
-                "type": poi_type
-            })
+#         pois = []
+#         for y, x, poi_type in model.scenario["pois"]:
+#             pois.append({
+#                 "x": x,
+#                 "y": y,
+#                 "type": poi_type
+#             })
         
-        data = {
-            "frame": self.frame_counter,
-            "turn": model.step_count,
-            "action": {
-                "type": "end_of_turn"
-            },
-            "firefighters": firefighters,
-            "grid_changes": grid_changes,
-            "wall_damage": [],
-            "doors": [],
-            "pois": pois,
-            "summary": {
-                "rescued": model.victims_rescued,
-                "lost": model.victims_lost,
-                "damage": model.damage_counters,
-                "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
-            }
-        }
+#         data = {
+#             "frame": self.frame_counter,
+#             "turn": model.step_count,
+#             "action": {
+#                 "type": "end_of_turn"
+#             },
+#             "firefighters": firefighters,
+#             "grid_changes": grid_changes,
+#             "wall_damage": [],
+#             "doors": [],
+#             "pois": pois,
+#             "summary": {
+#                 "rescued": model.victims_rescued,
+#                 "lost": model.victims_lost,
+#                 "damage": model.damage_counters,
+#                 "pois_in_deck": len(model.mazo_pois) if hasattr(model, "mazo_pois") else 0
+#             }
+#         }
         
-        return self.save_frame(data)
+#         return self.save_frame(data)
     
-    def game_over(self, model, result, message):
-        """Generates the JSON for game over"""
-        data = {
-            "frame": self.frame_counter,
-            "turn": model.step_count,
-            "action": {
-                "type": "game_over",
-                "result": result,
-                "message": message
-            },
-            "summary": {
-                "rescued": model.victims_rescued,
-                "lost": model.victims_lost,
-                "damage": model.damage_counters
-            }
-        }
+#     def game_over(self, model, result, message):
+#         """Generates the JSON for game over"""
+#         data = {
+#             "frame": self.frame_counter,
+#             "turn": model.step_count,
+#             "action": {
+#                 "type": "game_over",
+#                 "result": result,
+#                 "message": message
+#             },
+#             "summary": {
+#                 "rescued": model.victims_rescued,
+#                 "lost": model.victims_lost,
+#                 "damage": model.damage_counters
+#             }
+#         }
         
-        return self.save_frame(data)
+#         return self.save_frame(data)
 
 # Scenario content (full format)
 scenario_content = """1001 1000 1000 1000 1100 0001 1000 1100
@@ -1018,6 +1024,7 @@ class AStarPathfinder:
         
         # Validación inicial de posiciones
         grid_height, grid_width = self.model.grid_state.shape
+        
         if not (0 <= start[0] < grid_width and 0 <= start[1] < grid_height and
                 0 <= goal[0] < grid_width and 0 <= goal[1] < grid_height):
             return [], []
@@ -1216,8 +1223,7 @@ class FirefighterAgent(Agent):
         return ap_cost
 
     def _perform_movement_to(self, new_pos):
-        """Realiza el movimiento a una posición específica"""
-        # Validate position is within grid bounds
+        """Realiza el movimiento a una posición específica""" 
         if not (0 <= new_pos[1] < self.model.grid.height and
                 0 <= new_pos[0] < self.model.grid.width):
             return False
@@ -1228,16 +1234,6 @@ class FirefighterAgent(Agent):
         if self.ap >= ap_cost:
             self.model.grid.move_agent(self, new_pos)
             self.ap -= ap_cost
-
-            self.model.json_exporter.action_frame(
-                self.model,
-                self.unique_id,
-                "move",
-                ap_before=self.ap + ap_cost,
-                ap_after=self.ap,
-                from_pos=[original_pos[0], original_pos[1]],
-                to=[new_pos[0], new_pos[1]]
-            )
             return True
         return False
 
@@ -1255,15 +1251,6 @@ class FirefighterAgent(Agent):
                     self.model.scenario["pois"].pop(i)
                     break
             self.ap -= 2
-            self.model.json_exporter.action_frame(
-                self.model,
-                self.unique_id,
-                "pickup_poi",
-                ap_before=self.ap + 2,
-                ap_after=self.ap,
-                target=[x, y],
-                poi_type="v"
-            )
             return True
 
         # 2. Dejar víctima en entrada
@@ -1281,28 +1268,12 @@ class FirefighterAgent(Agent):
             if (y, x) in self.model.scenario["fires"]:
                 self.model.scenario["fires"].remove((y, x))
             self.ap -= 2
-            self.model.json_exporter.action_frame(
-                self.model,
-                self.unique_id,
-                "convert_to_smoke",
-                ap_before=self.ap + 2,
-                ap_after=self.ap,
-                target=[x, y]
-            )
             return True
 
         # 4. Eliminar humo
         if cell["smoke"] and self.ap >= 2:
             cell["smoke"] = False
             self.ap -= 2
-            self.model.json_exporter.action_frame(
-                self.model,
-                self.unique_id,
-                "remove_smoke",
-                ap_before=self.ap + 2,
-                ap_after=self.ap,
-                target=[x, y]
-            )
             return True
 
         # 5. Falsa alarma
@@ -1323,16 +1294,6 @@ class FirefighterAgent(Agent):
                     new_state = "closed" if door_state == "open" else "open"
                     self.model.door_states[(y, x, direction)] = new_state
                     self.ap -= 1
-                    self.model.json_exporter.action_frame(
-                        self.model,
-                        self.unique_id,
-                        "toggle_door",
-                        ap_before=self.ap + 1,
-                        ap_after=self.ap,
-                        target=[x, y],
-                        direction=direction,
-                        new_state=new_state
-                    )
                     return True
 
         # 7. Operaciones con paredes
@@ -1342,15 +1303,6 @@ class FirefighterAgent(Agent):
                 self.ap >= 2):
                 if DirectionHelper.damage_wall(self.model, y, x, direction):
                     self.ap -= 2
-                    self.model.json_exporter.action_frame(
-                        self.model,
-                        self.unique_id,
-                        "damage_wall",
-                        ap_before=self.ap + 2,
-                        ap_after=self.ap,
-                        target=[x, y],
-                        direction=direction
-                    )
                     return True
 
         # Si ninguna acción se realizó
@@ -1382,16 +1334,6 @@ class FirefighterAgent(Agent):
                 # Abrir puerta
                 self.model.door_states[(current_y, current_x, direction)] = "open"
                 self.ap -= 1
-                self.model.json_exporter.action_frame(
-                    self.model,
-                    self.unique_id,
-                    "toggle_door",
-                    ap_before=self.ap + 1,
-                    ap_after=self.ap,
-                    target=[current_x, current_y],
-                    direction=direction,
-                    new_state="open"
-                )
                 return True
     
         # Verificar si hay una pared rompible
@@ -1401,15 +1343,6 @@ class FirefighterAgent(Agent):
             # Romper pared
             if DirectionHelper.damage_wall(self.model, current_y, current_x, direction):
                 self.ap -= 2
-                self.model.json_exporter.action_frame(
-                    self.model,
-                    self.unique_id,
-                    "damage_wall",
-                    ap_before=self.ap + 2,
-                    ap_after=self.ap,
-                    target=[current_x, current_y],
-                    direction=direction
-                )
                 return True
     
         return False
@@ -1445,7 +1378,7 @@ class FireRescueModel(Model):
         self.step_count = 0
         self.stage = 0
         self.mazo_pois = []
-        self.json_exporter = JSONExporter()
+        ##self.json_exporter = JSONExporter()
 
     def create_agents(self):
         """Create 6 firefighter agents distributed among available entries"""
@@ -1493,111 +1426,29 @@ class FireRescueModel(Model):
         if self.simulation_over:
             return
     
-        if self.step_count == 0:
-            self.json_exporter.initial_state(self)
-    
         self.step_count += 1
-        print(f"\n=== ACCIONES DEL TURNO {self.step_count} ===")
-        action_count = 0
-    
-        def log_action(action_type, message):
-            nonlocal action_count
-            action_count += 1
-            print(f"{action_count}. [T{self.step_count}] [{action_type}] {message}")
-    
-        log_action("INFO", f"Starting turn {self.step_count}")
-    
+
         if self.stage == 0:
             self.stage = 1
     
         # Ejecutar acciones de los bomberos
         for agent in self.schedule.agents:
-            initial_ap = agent.ap
-            initial_pos = agent.pos
-            carrying_before = agent.carrying
-            
             agent.step()
             
-            # Loggear movimientos
-            if agent.pos != initial_pos:
-                state = "con víctima" if agent.carrying else "normal"
-                log_action("MOVIMIENTO", 
-                    f"Bombero {agent.unique_id} se movió a {agent.pos} | Estado: {state} | " +
-                    f"AP: -1 → {agent.ap} restantes")
-                
-            # Loggear otras acciones
-            if agent.ap != initial_ap and agent.pos == initial_pos:
-                ap_used = initial_ap - agent.ap
-                x, y = agent.pos
-                
-                if self.grid_state[y][x]["fire"]:
-                    log_action("EXTINCIÓN", 
-                        f"Bombero {agent.unique_id} convirtió fuego a humo en {agent.pos} | " +
-                        f"AP: -{ap_used} → {agent.ap} restantes")
-                elif self.grid_state[y][x]["smoke"]:
-                    log_action("EXTINCIÓN", 
-                        f"Bombero {agent.unique_id} eliminó humo en {agent.pos} | " +
-                        f"AP: -{ap_used} → {agent.ap} restantes")
-                        
-            # Loggear recoger/dejar víctimas
-            if agent.carrying != carrying_before:
-                if agent.carrying:
-                    log_action("RESCATE", 
-                        f"Bombero {agent.unique_id} recogió víctima en {agent.pos} | " +
-                        f"AP: -2 → {agent.ap} restantes")
-                else:
-                    log_action("RESCATE", 
-                        f"Bombero {agent.unique_id} entregó víctima en {agent.pos} | " +
-                        f"Víctimas rescatadas: {self.victims_rescued}")
-    
         # Fase de propagación del fuego
         if self.step_count > 1:
-            log_action("INFO", "Advancing fire propagation")
-            log_action("FUEGO", "Iniciando fase de propagación del fuego")
-            
-            fires_before = len(self.scenario["fires"])
-            smokes_before = sum(1 for y in range(self.grid_state.shape[0]) 
-                              for x in range(self.grid_state.shape[1]) 
-                              if self.grid_state[y][x]["smoke"])
-            
             GameMechanics.advance_fire(self)
             GameMechanics.check_firefighters_in_fire(self)
             
-            fires_after = len(self.scenario["fires"])
-            smokes_after = sum(1 for y in range(self.grid_state.shape[0]) 
-                             for x in range(self.grid_state.shape[1]) 
-                             if self.grid_state[y][x]["smoke"])
-            
-            if fires_after > fires_before:
-                log_action("FUEGO", 
-                    f"FLASHOVER: {fires_after - fires_before} casillas de humo convertidas a fuego, " +
-                    f"{smokes_after - smokes_before} casillas con nuevo humo")
-    
         # Recuperación de AP
         for agent in self.schedule.agents:
-            old_ap = agent.ap
             agent.ap = min(agent.ap + 4, agent.max_ap)
-            log_action("INFO", f"Firefighter {agent.unique_id} recovers 4 action points (Total: {agent.ap})")
     
         # Reposición de POIs
-        if GameMechanics.replenish_pois(self):
-            for y, x, poi_type in self.scenario["pois"][-3:]:  # Últimos 3 POIs añadidos
-                log_action("INFO", 
-                    f"New POI ({poi_type}) placed at ({x},{y}). Remaining in deck: {len(self.mazo_pois)}")
-    
+        GameMechanics.replenish_pois(self)
+           
         # Condiciones de fin de juego
-        if GameMechanics.check_end_conditions(self):
-            if self.victims_rescued >= 7:
-                log_action("INFO", f"VICTORY: {self.victims_rescued} victims rescued!")
-            elif self.victims_lost >= 4:
-                log_action("INFO", f"DEFEAT: {self.victims_lost} victims lost in the fire")
-            else:
-                log_action("INFO", f"DEFEAT: Building collapsed with {self.damage_counters} damage points")
-    
-        # Actualizar estado del juego
-        grid_changes = self._calculate_grid_changes(self._copy_grid_state())
-        if not self.simulation_over:
-            self.json_exporter.end_of_turn(self, grid_changes)
+        GameMechanics.check_end_conditions(self)
 
     def _copy_grid_state(self):
         """Creates a copy of the grid state to compare changes"""
@@ -1637,9 +1488,7 @@ class FireRescueModel(Model):
       
 class Visualization:
     """Class that encapsulates all visualization functionalities"""
-    
-    # ...existing visualization methods...
-    
+     
     @staticmethod
     def print_grid_state(model):
         """Prints the current state of the grid in terminal"""
@@ -1713,36 +1562,93 @@ class Visualization:
         )
         plt.show()
 
-# Parse the complete scenario
-scenario = ScenarioParser.parse_scenario(scenario_content)
 
-# Initialize model
-model = FireRescueModel(scenario)
+# Añade estas funciones de ayuda
+class TimeoutException(Exception):
+    pass
 
-print("\n=== INICIANDO SIMULACIÓN ===")
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
 
-# Mostrar estado inicial
-print("\n=== ESTADO INICIAL ===")
-Visualization.print_grid_state(model)
+# Modifica la función run_multiple_simulations
+def run_multiple_simulations(num_simulations=1000, timeout_seconds=1):
+    """
+    Ejecuta múltiples simulaciones y guarda los resultados en CSV
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"simulation_results_{timestamp}.csv"
+    
+    headers = ['simulation_id', 'result', 'total_turns', 'victims_rescued', 
+              'victims_lost', 'structural_damage']
 
-# Simular hasta victoria o derrota
-step = 1
-while not model.simulation_over and step < 50:
-    print(f"\n=== TURNO {step} ===")
-    model.step()
-    Visualization.print_grid_state(model)
-    step += 1
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        
+        for sim_id in range(num_simulations):
+            try:
+                with time_limit(timeout_seconds):
+                    # Parse scenario and initialize model
+                    scenario = ScenarioParser.parse_scenario(scenario_content)
+                    model = FireRescueModel(scenario)
+                    
+                    step = 1
+                    while not model.simulation_over and step < 50:
+                        model.step()
+                        step += 1
+                    
+                    # Determinar resultado
+                    if model.victims_rescued >= 7:
+                        result = "VICTORIA"
+                    elif model.victims_lost >= 4:
+                        result = "DERROTA_VICTIMAS"
+                    else:
+                        result = "DERROTA_ESTRUCTURAL"
+                    
+                    writer.writerow({
+                        'simulation_id': sim_id + 1,
+                        'result': result,
+                        'total_turns': step - 1,
+                        'victims_rescued': model.victims_rescued,
+                        'victims_lost': model.victims_lost,
+                        'structural_damage': model.damage_counters
+                    })
+            
+            except TimeoutException:
+                writer.writerow({
+                    'simulation_id': sim_id + 1,
+                    'result': "TIMEOUT",
+                    'total_turns': -1,
+                    'victims_rescued': -1,
+                    'victims_lost': -1,
+                    'structural_damage': -1
+                })
+                print(f"Simulation {sim_id + 1} timed out")
+                
+            except Exception as e:
+                print(f"Error in simulation {sim_id + 1}: {str(e)}")
+                writer.writerow({
+                    'simulation_id': sim_id + 1,
+                    'result': 'ERROR',
+                    'total_turns': -1,
+                    'victims_rescued': -1,
+                    'victims_lost': -1,
+                    'structural_damage': -1
+                })
+            
+            # Imprimir progreso cada 100 simulaciones
+            if (sim_id + 1) % 100 == 0:
+                print(f"Completed {sim_id + 1}/{num_simulations} simulations")
+    
+    print(f"\nSimulations complete. Results saved to {csv_filename}")
 
-print("\n=== SIMULACIÓN TERMINADA ===")
-print(f"Total de turnos: {step-1}")
-print(f"Víctimas rescatadas: {model.victims_rescued}")
-print(f"Víctimas perdidas: {model.victims_lost}")
-print(f"Daño estructural total: {model.damage_counters}")
-
-if model.simulation_over:
-    if model.victims_rescued >= 7:
-        print(f"\n¡VICTORIA! Se rescataron {model.victims_rescued} víctimas.")
-    elif model.victims_lost >= 4:
-        print(f"\nDERROTA: Se perdieron {model.victims_lost} víctimas.")
-    else:
-        print(f"\nDERROTA: Colapso estructural ({model.damage_counters} puntos de daño)")
+if __name__ == "__main__":
+    run_multiple_simulations(1000, timeout_seconds=1)

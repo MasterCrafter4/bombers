@@ -1,0 +1,23 @@
+{
+  "frame": 347,
+  "turn": 17,
+  "action": {
+    "firefighter_id": 5,
+    "type": "knockdown",
+    "ap_before": 0,
+    "ap_after": 0
+  },
+  "firefighters": [
+    {
+      "id": 5,
+      "x": 9,
+      "y": 0,
+      "ap": 0,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}

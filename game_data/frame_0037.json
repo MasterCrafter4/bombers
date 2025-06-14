@@ -1,31 +1,148 @@
 {
   "frame": 37,
-  "turn": 4,
+  "turn": 2,
   "action": {
-    "firefighter_id": 1,
-    "type": "move",
-    "ap_before": 2,
-    "ap_after": 0,
-    "from": [
-      7,
-      7
-    ],
-    "to": [
-      7,
-      6
-    ]
+    "type": "end_of_turn"
   },
   "firefighters": [
     {
-      "id": 1,
-      "x": 7,
+      "id": 3,
+      "x": 8,
+      "y": 5,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 2,
+      "x": 8,
       "y": 6,
-      "ap": 0,
+      "ap": 5,
+      "carrying": true
+    },
+    {
+      "id": 4,
+      "x": 5,
+      "y": 2,
+      "ap": 5,
+      "carrying": true
+    },
+    {
+      "id": 1,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 5,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 0,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
       "carrying": false
     }
   ],
-  "grid_changes": [],
+  "grid_changes": [
+    {
+      "x": 2,
+      "y": 1,
+      "smoke": true
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "smoke": true
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "smoke": true
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "poi": null
+    },
+    {
+      "x": 1,
+      "y": 3,
+      "smoke": true
+    },
+    {
+      "x": 6,
+      "y": 3,
+      "smoke": true
+    },
+    {
+      "x": 8,
+      "y": 3,
+      "smoke": true
+    },
+    {
+      "x": 2,
+      "y": 4,
+      "smoke": true
+    },
+    {
+      "x": 3,
+      "y": 4,
+      "smoke": true
+    },
+    {
+      "x": 5,
+      "y": 4,
+      "smoke": true
+    },
+    {
+      "x": 4,
+      "y": 5,
+      "smoke": true
+    },
+    {
+      "x": 8,
+      "y": 5,
+      "poi": null
+    },
+    {
+      "x": 5,
+      "y": 6,
+      "smoke": true
+    },
+    {
+      "x": 7,
+      "y": 6,
+      "smoke": true
+    }
+  ],
   "wall_damage": [],
   "doors": [],
-  "pois": []
+  "pois": [
+    {
+      "x": 1,
+      "y": 5,
+      "type": "f"
+    },
+    {
+      "x": 5,
+      "y": 5,
+      "type": "f"
+    },
+    {
+      "x": 5,
+      "y": 4,
+      "type": "v"
+    }
+  ],
+  "summary": {
+    "rescued": 0,
+    "lost": 0,
+    "damage": 0,
+    "pois_in_deck": 12
+  }
 }

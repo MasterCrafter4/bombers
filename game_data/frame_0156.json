@@ -1,6 +1,6 @@
 {
   "frame": 156,
-  "turn": 11,
+  "turn": 8,
   "action": {
     "firefighter_id": 2,
     "type": "move",
@@ -11,15 +11,15 @@
       0
     ],
     "to": [
-      5,
-      5
+      3,
+      6
     ]
   },
   "firefighters": [
     {
       "id": 2,
-      "x": 5,
-      "y": 5,
+      "x": 3,
+      "y": 6,
       "ap": 2,
       "carrying": false
     }
