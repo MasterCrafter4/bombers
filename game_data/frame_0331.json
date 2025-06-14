@@ -1,0 +1,31 @@
+{
+  "frame": 331,
+  "turn": 16,
+  "action": {
+    "firefighter_id": 4,
+    "type": "move",
+    "ap_before": 4,
+    "ap_after": 2,
+    "from": [
+      9,
+      0
+    ],
+    "to": [
+      7,
+      1
+    ]
+  },
+  "firefighters": [
+    {
+      "id": 4,
+      "x": 7,
+      "y": 1,
+      "ap": 2,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}

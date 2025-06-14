@@ -1,0 +1,77 @@
+{
+  "frame": 305,
+  "turn": 14,
+  "action": {
+    "type": "end_of_turn"
+  },
+  "firefighters": [
+    {
+      "id": 1,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 2,
+      "x": 0,
+      "y": 2,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 3,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 5,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 4,
+      "x": 9,
+      "y": 0,
+      "ap": 4,
+      "carrying": false
+    },
+    {
+      "id": 0,
+      "x": 0,
+      "y": 2,
+      "ap": 4,
+      "carrying": false
+    }
+  ],
+  "grid_changes": [],
+  "wall_damage": [],
+  "doors": [],
+  "pois": [
+    {
+      "x": 1,
+      "y": 5,
+      "type": "f"
+    },
+    {
+      "x": 8,
+      "y": 3,
+      "type": "f"
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "type": "f"
+    }
+  ],
+  "summary": {
+    "rescued": 4,
+    "lost": 3,
+    "damage": 20,
+    "pois_in_deck": 7
+  }
+}
