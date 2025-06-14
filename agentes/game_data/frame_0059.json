@@ -1,0 +1,33 @@
+{
+  "frame": 59,
+  "turn": 5,
+  "action": {
+    "firefighter_id": 0,
+    "type": "remove_smoke",
+    "ap_before": 1,
+    "ap_after": 0,
+    "target": [
+      4,
+      1
+    ]
+  },
+  "firefighters": [
+    {
+      "id": 0,
+      "x": 4,
+      "y": 2,
+      "ap": 0,
+      "carrying": true
+    }
+  ],
+  "grid_changes": [
+    {
+      "x": 4,
+      "y": 1,
+      "smoke": false
+    }
+  ],
+  "wall_damage": [],
+  "doors": [],
+  "pois": []
+}
